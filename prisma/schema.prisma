@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model RouteCluster {
+  id              Int         @id @default(autoincrement()) @map("route_cluster_id")
+  centroidLat     Float       @map("centroid_lat")
+  centroidLong    Float       @map("centroid_long")
+  radius          Float
+  nRouteRuns      Int         @map("n_route_runs")
+  nSignatureStops Int         @map("n_signature_stops")
+  stopFreq        Json        @map("stop_freq")
+  dow             String      @db.VarChar(10)
+  stopScores      StopScore[]
+
+  @@index([dow, id])
+  @@map("route_clusters")
+}
+
+model StopCluster {
+  id           Int         @id @map("stop_cluster_id")
+  centroidLat  Float       @map("centroid_lat")
+  centroidLong Float       @map("centroid_long")
+  address      String?
+  stopScores   StopScore[]
+
+  @@map("stop_clusters")
+}
+
+model StopScore {
+  stopClusterId  Int      @map("stop_cluster_id")
+  routeClusterId Int      @map("route_cluster_id")
+  dow            String   @db.VarChar(10)
+  totalSales     Float    @default(0) @map("total_sales")
+  visits         Int      @default(0)
+  salesNorm      Float?   @map("sales_norm")
+  visitsNorm     Float?   @map("visits_norm")
+  score          Float?
+  lastUpdated    DateTime @default(now()) @map("last_updated") @db.Timestamptz(6)
+  routeCluster   RouteCluster @relation(fields: [routeClusterId], references: [id])
+  stopCluster    StopCluster  @relation(fields: [stopClusterId], references: [id])
+
+  @@id([stopClusterId, routeClusterId, dow])
+  @@index([dow, routeClusterId])
+  @@map("stop_scores")
+}

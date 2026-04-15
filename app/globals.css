@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(15, 108, 122, 0.1), transparent 32%),
+    linear-gradient(180deg, #f8fbfc 0%, #eef3f6 100%);
+  color: #112033;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  font-family: inherit;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px;
+  line-height: 1.45;
+}
+
+.leaflet-tooltip.route-tooltip {
+  border: 0;
+  border-radius: 999px;
+  background: rgba(17, 32, 51, 0.9);
+  color: #f8fbfc;
+  box-shadow: 0 12px 24px rgba(17, 32, 51, 0.18);
+  padding: 8px 12px;
+}
+
+.route-pin-icon {
+  background: transparent;
+  border: 0;
+}
+
+.route-pin {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px 999px 999px 0;
+  transform: rotate(-45deg);
+  box-shadow: 0 8px 16px rgba(17, 32, 51, 0.22);
+}
+
+.route-pin::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.route-pin__glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transform: rotate(45deg);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  z-index: 1;
+}
+
+.route-pin--start {
+  background: linear-gradient(180deg, #7ad52f 0%, #57b80e 100%);
+}
+
+.route-pin--end {
+  background: linear-gradient(180deg, #ff6a4d 0%, #db2f20 100%);
+}
+
+.route-pin--mid {
+  background: var(--pin-color, linear-gradient(180deg, #5b6c7d 0%, #334155 100%));
+}
