@@ -34,9 +34,49 @@ export async function getDays(): Promise<DayOption[]> {
 }
 
 export async function getRouteClusterOptions(day: string): Promise<RouteClusterOption[]> {
+  const clusters = await getTopRouteClustersForDay(day);
+
+  const routeNameMap = buildRouteClusterNameMap(clusters);
+
+  return clusters
+    .map((cluster) => ({
+      id: cluster.id,
+      label: routeNameMap.get(cluster.id) ?? `Route Cluster ${cluster.id}`,
+      stopCount: cluster._count.stopScores
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }));
+}
+
+export async function getRouteSummaries(day: string, topStops: number): Promise<RouteSummaryDto[]> {
+  const clusters = await getTopRouteClustersForDay(day);
+
+  const colorMap = buildDayRouteColorMap(clusters.map((cluster) => cluster.id));
+  const routeNameMap = buildRouteClusterNameMap(clusters);
+
+  return clusters
+    .map((cluster) => toOrderedRoute(cluster, colorMap, routeNameMap, topStops))
+    .filter((cluster): cluster is OrderedRouteResult => cluster !== null)
+    .map((cluster) => toRouteSummary(cluster));
+}
+
+export async function getRouteDetail(day: string, routeClusterId: number, topStops: number): Promise<RouteDetailDto | null> {
+  const dayClusters = await getTopRouteClustersForDay(day);
+  const colorMap = buildDayRouteColorMap(dayClusters.map((cluster) => cluster.id));
+  const routeNameMap = buildRouteClusterNameMap(dayClusters);
+
+  const cluster = dayClusters.find((item) => item.id === routeClusterId) ?? null;
+
+  const ordered = cluster ? toOrderedRoute(cluster, colorMap, routeNameMap, topStops) : null;
+  if (!ordered) {
+    return null;
+  }
+
+  return toRouteDetail(ordered, colorMap, routeNameMap);
+}
+
+async function getTopRouteClustersForDay(day: string) {
   const clusters = await prisma.routeCluster.findMany({
     where: { dow: day },
-    orderBy: { id: "asc" },
     include: {
       stopScores: {
         include: {
@@ -51,62 +91,19 @@ export async function getRouteClusterOptions(day: string): Promise<RouteClusterO
     }
   });
 
-  const routeNameMap = buildRouteClusterNameMap(clusters);
-
   return clusters
     .map((cluster) => ({
-      id: cluster.id,
-      label: routeNameMap.get(cluster.id) ?? `Route Cluster ${cluster.id}`,
-      stopCount: cluster._count.stopScores
+      ...cluster,
+      totalSalesAmount: cluster.stopScores.reduce((sum, stop) => sum + stop.totalSales, 0)
     }))
-    .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }));
-}
-
-export async function getRouteSummaries(day: string, topStops: number): Promise<RouteSummaryDto[]> {
-  const clusters = await prisma.routeCluster.findMany({
-    where: { dow: day },
-    orderBy: { id: "asc" },
-    include: {
-      stopScores: {
-        include: {
-          stopCluster: true
-        }
+    .sort((left, right) => {
+      if (right.totalSalesAmount !== left.totalSalesAmount) {
+        return right.totalSalesAmount - left.totalSalesAmount;
       }
-    }
-  });
 
-  const colorMap = buildDayRouteColorMap(clusters.map((cluster) => cluster.id));
-  const routeNameMap = buildRouteClusterNameMap(clusters);
-
-  return clusters
-    .map((cluster) => toOrderedRoute(cluster, colorMap, routeNameMap, topStops))
-    .filter((cluster): cluster is OrderedRouteResult => cluster !== null)
-    .map((cluster) => toRouteSummary(cluster));
-}
-
-export async function getRouteDetail(day: string, routeClusterId: number, topStops: number): Promise<RouteDetailDto | null> {
-  const dayClusters = await prisma.routeCluster.findMany({
-    where: { dow: day },
-    orderBy: { id: "asc" },
-    include: {
-      stopScores: {
-        include: {
-          stopCluster: true
-        }
-      }
-    }
-  });
-  const colorMap = buildDayRouteColorMap(dayClusters.map((cluster) => cluster.id));
-  const routeNameMap = buildRouteClusterNameMap(dayClusters);
-
-  const cluster = dayClusters.find((item) => item.id === routeClusterId) ?? null;
-
-  const ordered = cluster ? toOrderedRoute(cluster, colorMap, routeNameMap, topStops) : null;
-  if (!ordered) {
-    return null;
-  }
-
-  return toRouteDetail(ordered, colorMap, routeNameMap);
+      return left.id - right.id;
+    })
+    .slice(0, 17);
 }
 
 type OrderedStop = {
