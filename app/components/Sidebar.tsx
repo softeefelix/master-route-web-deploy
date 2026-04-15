@@ -123,7 +123,7 @@ export function Sidebar({
           </h1>
           {routeDetail ? (
             <div className="shrink-0 rounded-full bg-ink px-3 py-1 text-xs font-semibold text-white">
-              {formatCurrency(routeDetail.predictedSalesTotal)}
+              {formatCurrency(routeDetail.totalSalesAmount)}
             </div>
           ) : null}
         </div>
@@ -161,7 +161,7 @@ export function Sidebar({
                   #{stop.visitOrder} {"\u2014"} {stop.address}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Same DOW sales: {formatCurrency(stop.pastSalesPerDaySameDow)} | Visit #{stop.visitOrder}
+                  Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)} | Visit #{stop.visitOrder}
                 </div>
               </button>
             </li>

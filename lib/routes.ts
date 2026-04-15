@@ -217,6 +217,7 @@ function toRouteSummary(route: OrderedRouteResult): RouteSummaryDto {
     centroid: route.centroid,
     stopCount: route.orderedStops.length,
     predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + (stop.score ?? 0), 0),
+    totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
     stops: route.orderedStops.map((stop) => ({
       stopClusterId: stop.stopClusterId,
       lat: stop.lat,
@@ -241,6 +242,7 @@ function toRouteDetail(
     bounds: calculateBounds(polyline),
     polyline,
     predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + (stop.score ?? 0), 0),
+    totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
     stops: route.orderedStops.map((stop, index) => ({
       stopClusterId: stop.stopClusterId,
       visitOrder: index + 1,

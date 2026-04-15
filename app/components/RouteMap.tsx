@@ -179,7 +179,7 @@ export function RouteMap({
               </div>
               <div>Stop cluster ID: {stop.stopClusterId}</div>
               <div>Past visits: {stop.salesMatchesWithin50m ?? "N/A"}</div>
-              <div>Past total sales same DOW: {formatCurrency(stop.pastSalesPerDaySameDow)}</div>
+              <div>Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)}</div>
               <div>Stop score: {formatScore(stop.predictedSalesPerDay)}</div>
               <div>Address: {stop.address}</div>
             </div>

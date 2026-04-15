@@ -39,6 +39,7 @@ export type RouteSummaryDto = {
   centroid: [number, number];
   stopCount: number;
   predictedSalesTotal: number;
+  totalSalesAmount: number;
   stops: RouteSummaryStopDto[];
 };
 
@@ -52,4 +53,5 @@ export type RouteDetailDto = {
   polyline: Array<[number, number]>;
   stops: RouteStopDto[];
   predictedSalesTotal: number;
+  totalSalesAmount: number;
 };
