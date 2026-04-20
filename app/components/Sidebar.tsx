@@ -117,13 +117,23 @@ export function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="mb-3 flex items-center justify-between gap-4">
+        <div className="mb-3">
           <h1 className="text-sm font-semibold text-ink">
             {routeDetail?.title ?? "Select a day and route cluster to see stop addresses in order"}
           </h1>
           {routeDetail ? (
-            <div className="shrink-0 rounded-full bg-ink px-3 py-1 text-xs font-semibold text-white">
-              {formatCurrency(routeDetail.totalSalesAmount)}
+            <div className="mt-3 space-y-2">
+              <div className="rounded-2xl border border-accent/20 bg-accent/10 px-3 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
+                  Daily Average Sale
+                </div>
+                <div className="mt-1 text-lg font-bold text-ink">
+                  {formatCurrency(routeDetail.totalAverageSaleAmount)}
+                </div>
+                <div className="mt-2 text-xs text-slate-600">
+                  <span className="font-semibold text-ink">Total past sales:</span> {formatCurrency(routeDetail.totalSalesAmount)}
+                </div>
+              </div>
             </div>
           ) : null}
         </div>

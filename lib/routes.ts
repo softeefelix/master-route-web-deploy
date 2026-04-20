@@ -215,6 +215,10 @@ function toRouteSummary(route: OrderedRouteResult): RouteSummaryDto {
     stopCount: route.orderedStops.length,
     predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + (stop.score ?? 0), 0),
     totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
+    totalAverageSaleAmount: route.orderedStops.reduce(
+      (sum, stop) => sum + (stop.visits > 0 ? stop.totalSales / stop.visits : 0),
+      0
+    ),
     stops: route.orderedStops.map((stop) => ({
       stopClusterId: stop.stopClusterId,
       lat: stop.lat,
@@ -240,6 +244,10 @@ function toRouteDetail(
     polyline,
     predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + (stop.score ?? 0), 0),
     totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
+    totalAverageSaleAmount: route.orderedStops.reduce(
+      (sum, stop) => sum + (stop.visits > 0 ? stop.totalSales / stop.visits : 0),
+      0
+    ),
     stops: route.orderedStops.map((stop, index) => ({
       stopClusterId: stop.stopClusterId,
       visitOrder: index + 1,
@@ -249,6 +257,7 @@ function toRouteDetail(
       stopType: null,
       label: null,
       pastSalesPerDaySameDow: stop.totalSales,
+      averageSale: stop.visits > 0 ? stop.totalSales / stop.visits : null,
       otherDowAvgSalesPerDay: stop.visitsNorm,
       predictedSalesPerDay: stop.score,
       salesMatchesWithin50m: stop.visits

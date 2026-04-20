@@ -18,6 +18,7 @@ export type RouteStopDto = {
   stopType: string | null;
   label: string | null;
   pastSalesPerDaySameDow: number | null;
+  averageSale: number | null;
   otherDowAvgSalesPerDay: number | null;
   predictedSalesPerDay: number | null;
   salesMatchesWithin50m: number | null;
@@ -40,6 +41,7 @@ export type RouteSummaryDto = {
   stopCount: number;
   predictedSalesTotal: number;
   totalSalesAmount: number;
+  totalAverageSaleAmount: number;
   stops: RouteSummaryStopDto[];
 };
 
@@ -54,4 +56,5 @@ export type RouteDetailDto = {
   stops: RouteStopDto[];
   predictedSalesTotal: number;
   totalSalesAmount: number;
+  totalAverageSaleAmount: number;
 };
