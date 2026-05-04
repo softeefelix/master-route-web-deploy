@@ -7,8 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model PipelineRun {
+  id          BigInt   @id @default(autoincrement()) @map("pipeline_run_id")
+  runMonth    DateTime @map("run_month") @db.Date
+  status      String   @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+  activatedAt DateTime? @map("activated_at") @db.Timestamptz(6)
+  notes       String?
+  routeClusters RouteCluster[]
+  stopScores    StopScore[]
+
+  @@map("pipeline_runs")
+}
+
 model RouteCluster {
   id              Int         @id @default(autoincrement()) @map("route_cluster_id")
+  pipelineRunId   BigInt      @map("pipeline_run_id")
   centroidLat     Float       @map("centroid_lat")
   centroidLong    Float       @map("centroid_long")
   radius          Float
@@ -16,8 +31,10 @@ model RouteCluster {
   nSignatureStops Int         @map("n_signature_stops")
   stopFreq        Json        @map("stop_freq")
   dow             String      @db.VarChar(10)
+  pipelineRun     PipelineRun @relation(fields: [pipelineRunId], references: [id])
   stopScores      StopScore[]
 
+  @@index([pipelineRunId, dow, id])
   @@index([dow, id])
   @@map("route_clusters")
 }
@@ -33,6 +50,7 @@ model StopCluster {
 }
 
 model StopScore {
+  pipelineRunId  BigInt   @map("pipeline_run_id")
   stopClusterId  Int      @map("stop_cluster_id")
   routeClusterId Int      @map("route_cluster_id")
   dow            String   @db.VarChar(10)
@@ -42,10 +60,12 @@ model StopScore {
   visitsNorm     Float?   @map("visits_norm")
   score          Float?
   lastUpdated    DateTime @default(now()) @map("last_updated") @db.Timestamptz(6)
+  pipelineRun    PipelineRun  @relation(fields: [pipelineRunId], references: [id])
   routeCluster   RouteCluster @relation(fields: [routeClusterId], references: [id])
   stopCluster    StopCluster  @relation(fields: [stopClusterId], references: [id])
 
-  @@id([stopClusterId, routeClusterId, dow])
+  @@id([pipelineRunId, stopClusterId, routeClusterId, dow])
+  @@index([pipelineRunId, dow, routeClusterId])
   @@index([dow, routeClusterId])
   @@map("stop_scores")
 }

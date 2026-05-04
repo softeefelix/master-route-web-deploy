@@ -19,8 +19,24 @@ type RouteClusterWithStops = Prisma.RouteClusterGetPayload<{
   };
 }>;
 
+async function getActivePipelineRunId() {
+  const activeRun = await prisma.pipelineRun.findFirst({
+    where: { status: "ACTIVE" },
+    select: { id: true },
+    orderBy: [{ activatedAt: "desc" }, { id: "desc" }]
+  });
+
+  if (!activeRun) {
+    throw new Error("No ACTIVE pipeline run found.");
+  }
+
+  return activeRun.id;
+}
+
 export async function getDays(): Promise<DayOption[]> {
+  const activePipelineRunId = await getActivePipelineRunId();
   const rows = await prisma.routeCluster.findMany({
+    where: { pipelineRunId: activePipelineRunId },
     distinct: ["dow"],
     select: {
       dow: true
@@ -75,10 +91,17 @@ export async function getRouteDetail(day: string, routeClusterId: number, topSto
 }
 
 async function getTopRouteClustersForDay(day: string) {
+  const activePipelineRunId = await getActivePipelineRunId();
   const clusters = await prisma.routeCluster.findMany({
-    where: { dow: day },
+    where: {
+      pipelineRunId: activePipelineRunId,
+      dow: day
+    },
     include: {
       stopScores: {
+        where: {
+          pipelineRunId: activePipelineRunId
+        },
         include: {
           stopCluster: true
         }
