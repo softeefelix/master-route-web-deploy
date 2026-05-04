@@ -38,15 +38,33 @@ type PreparedRow = {
 async function main() {
   const rows = parseCsv(SOURCE_CSV);
   const groupedRoutes = groupByRoute(rows);
+  const runMonth = startOfMonthFromSourcePath(SOURCE_CSV);
 
   await prisma.stopScore.deleteMany();
   await prisma.routeCluster.deleteMany();
   await prisma.stopCluster.deleteMany();
+  await prisma.pipelineRun.updateMany({
+    where: { status: "ACTIVE" },
+    data: {
+      status: "ARCHIVED",
+      finishedAt: new Date()
+    }
+  });
+
+  const pipelineRun = await prisma.pipelineRun.create({
+    data: {
+      runMonth,
+      status: "ACTIVE",
+      activatedAt: new Date(),
+      notes: `Seed import from ${path.basename(SOURCE_CSV)}`
+    }
+  });
 
   for (const routeRows of groupedRoutes.values()) {
     const centroid = averagePoint(routeRows);
     const routeCluster = await prisma.routeCluster.create({
       data: {
+        pipelineRunId: pipelineRun.id,
         centroidLat: centroid.lat,
         centroidLong: centroid.lon,
         radius: maxDistanceFromCentroid(centroid, routeRows),
@@ -75,6 +93,7 @@ async function main() {
 
       await prisma.stopScore.create({
         data: {
+          pipelineRunId: pipelineRun.id,
           stopClusterId: row.stopClusterId,
           routeClusterId: routeCluster.id,
           dow: row.day,
@@ -192,6 +211,35 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 function numberOrNull(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function startOfMonthFromSourcePath(filePath: string) {
+  const lowerName = path.basename(filePath).toLowerCase();
+  const match = lowerName.match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)(\d{4})\b/
+  );
+
+  if (!match) {
+    return new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  }
+
+  const monthMap: Record<string, number> = {
+    jan: 0,
+    feb: 1,
+    mar: 2,
+    apr: 3,
+    may: 4,
+    jun: 5,
+    jul: 6,
+    aug: 7,
+    sep: 8,
+    sept: 8,
+    oct: 9,
+    nov: 10,
+    dec: 11
+  };
+
+  return new Date(Number(match[2]), monthMap[match[1]], 1);
 }
 
 main()
