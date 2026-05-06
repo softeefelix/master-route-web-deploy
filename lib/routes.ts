@@ -1,38 +1,58 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildDayRouteColorMap, buildRouteTitle, calculateBounds, sortDays } from "@/lib/utils";
-import type { DayOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
+import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
 
-type StopScoreWithRelations = Prisma.StopScoreGetPayload<{
-  include: {
-    stopCluster: true;
-  };
-}>;
+type RouteClusterRecord = {
+  id: number;
+  dow: string;
+  centroidLat: number;
+  centroidLong: number;
+};
 
-type RouteClusterWithStops = Prisma.RouteClusterGetPayload<{
-  include: {
-    stopScores: {
-      include: {
-        stopCluster: true;
-      };
-    };
-  };
-}>;
+type SeasonalStopRow = {
+  routeClusterId: number;
+  stopClusterId: number;
+  address: string | null;
+  stopLat: number;
+  stopLon: number;
+  totalSales: number;
+  visits: number;
+};
+
+type SeasonalStop = {
+  stopClusterId: number;
+  address: string;
+  lat: number;
+  lon: number;
+  totalSales: number;
+  visits: number;
+  salesNorm: number;
+  visitsNorm: number;
+  score: number;
+};
+
+type SeasonalRouteCluster = {
+  id: number;
+  dow: string;
+  centroidLat: number;
+  centroidLong: number;
+  totalSalesAmount: number;
+  stops: SeasonalStop[];
+};
+
+type OrderedStop = SeasonalStop;
+
+type OrderedRouteResult = {
+  routeClusterId: number;
+  routeClusterName: string;
+  day: string;
+  centroid: [number, number];
+  color: string;
+  orderedStops: OrderedStop[];
+};
 
 async function getActivePipelineRunId() {
-
-  // CL 2026-05-06 Adding this for local pipeline testing
-  // const override = process.env.PIPELINE_RUN_ID_OVERRIDE;
-
-  // if (override) {
-  //   const parsed = Number(override);
-  //   if (!Number.isInteger(parsed) || parsed <= 0) {
-  //     throw new Error("PIPELINE_RUN_ID_OVERRIDE must be a positive integer.");
-  //   }
-  //   return parsed;
-  // }
-  // End of Addition
-
   const activeRun = await prisma.pipelineRun.findFirst({
     where: { status: "ACTIVE" },
     select: { id: true },
@@ -62,23 +82,36 @@ export async function getDays(): Promise<DayOption[]> {
   }));
 }
 
-export async function getRouteClusterOptions(day: string): Promise<RouteClusterOption[]> {
-  const clusters = await getTopRouteClustersForDay(day);
+export async function getMonths(): Promise<MonthOption[]> {
+  const activePipelineRunId = await getActivePipelineRunId();
+  const rows = await prisma.$queryRaw<Array<{ month: number }>>(Prisma.sql`
+    SELECT DISTINCT EXTRACT(MONTH FROM created_at)::int AS month
+    FROM sale_stops
+    WHERE pipeline_run_id = ${activePipelineRunId}
+    ORDER BY month
+  `);
 
+  return rows.map((row) => ({
+    value: row.month,
+    label: new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(2000, row.month - 1, 1))
+  }));
+}
+
+export async function getRouteClusterOptions(day: string, months: number[]): Promise<RouteClusterOption[]> {
+  const clusters = await getSeasonalRouteClustersForDay(day, months);
   const routeNameMap = buildRouteClusterNameMap(clusters);
 
   return clusters
     .map((cluster) => ({
       id: cluster.id,
       label: routeNameMap.get(cluster.id) ?? `Route Cluster ${cluster.id}`,
-      stopCount: cluster._count.stopScores
+      stopCount: cluster.stops.length
     }))
     .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }));
 }
 
-export async function getRouteSummaries(day: string, topStops: number): Promise<RouteSummaryDto[]> {
-  const clusters = await getTopRouteClustersForDay(day);
-
+export async function getRouteSummaries(day: string, months: number[], topStops: number): Promise<RouteSummaryDto[]> {
+  const clusters = await getSeasonalRouteClustersForDay(day, months);
   const colorMap = buildDayRouteColorMap(clusters.map((cluster) => cluster.id));
   const routeNameMap = buildRouteClusterNameMap(clusters);
 
@@ -88,14 +121,18 @@ export async function getRouteSummaries(day: string, topStops: number): Promise<
     .map((cluster) => toRouteSummary(cluster));
 }
 
-export async function getRouteDetail(day: string, routeClusterId: number, topStops: number): Promise<RouteDetailDto | null> {
-  const dayClusters = await getTopRouteClustersForDay(day);
+export async function getRouteDetail(
+  day: string,
+  months: number[],
+  routeClusterId: number,
+  topStops: number
+): Promise<RouteDetailDto | null> {
+  const dayClusters = await getSeasonalRouteClustersForDay(day, months);
   const colorMap = buildDayRouteColorMap(dayClusters.map((cluster) => cluster.id));
   const routeNameMap = buildRouteClusterNameMap(dayClusters);
-
   const cluster = dayClusters.find((item) => item.id === routeClusterId) ?? null;
-
   const ordered = cluster ? toOrderedRoute(cluster, colorMap, routeNameMap, topStops) : null;
+
   if (!ordered) {
     return null;
   }
@@ -103,35 +140,36 @@ export async function getRouteDetail(day: string, routeClusterId: number, topSto
   return toRouteDetail(ordered, colorMap, routeNameMap);
 }
 
-async function getTopRouteClustersForDay(day: string) {
+async function getSeasonalRouteClustersForDay(day: string, months: number[]) {
   const activePipelineRunId = await getActivePipelineRunId();
-  const clusters = await prisma.routeCluster.findMany({
+  const routeClusters = await prisma.routeCluster.findMany({
     where: {
       pipelineRunId: activePipelineRunId,
       dow: day
     },
-    include: {
-      stopScores: {
-        where: {
-          pipelineRunId: activePipelineRunId
-        },
-        include: {
-          stopCluster: true
-        }
-      },
-      _count: {
-        select: {
-          stopScores: true
-        }
-      }
+    select: {
+      id: true,
+      dow: true,
+      centroidLat: true,
+      centroidLong: true
     }
   });
 
-  return clusters
-    .map((cluster) => ({
-      ...cluster,
-      totalSalesAmount: cluster.stopScores.reduce((sum, stop) => sum + stop.totalSales, 0)
-    }))
+  if (routeClusters.length === 0) {
+    return [];
+  }
+
+  const seasonalStopRows = await getSeasonalStopRows(activePipelineRunId, day, months);
+  const seasonalRowsByRoute = new Map<number, SeasonalStopRow[]>();
+  for (const row of seasonalStopRows) {
+    const bucket = seasonalRowsByRoute.get(row.routeClusterId) ?? [];
+    bucket.push(row);
+    seasonalRowsByRoute.set(row.routeClusterId, bucket);
+  }
+
+  return routeClusters
+    .map((routeCluster) => toSeasonalRouteCluster(routeCluster, seasonalRowsByRoute.get(routeCluster.id) ?? []))
+    .filter((cluster): cluster is SeasonalRouteCluster => cluster !== null)
     .sort((left, right) => {
       if (right.totalSalesAmount !== left.totalSalesAmount) {
         return right.totalSalesAmount - left.totalSalesAmount;
@@ -142,38 +180,76 @@ async function getTopRouteClustersForDay(day: string) {
     .slice(0, 17);
 }
 
-type OrderedStop = {
-  stopClusterId: number;
-  address: string;
-  lat: number;
-  lon: number;
-  totalSales: number;
-  visits: number;
-  salesNorm: number | null;
-  visitsNorm: number | null;
-  score: number | null;
-};
+async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, months: number[]) {
+  return prisma.$queryRaw<SeasonalStopRow[]>(Prisma.sql`
+    SELECT
+      ss.route_cluster_id AS "routeClusterId",
+      ss.stop_cluster_id AS "stopClusterId",
+      sc.address AS address,
+      sc.centroid_lat AS "stopLat",
+      sc.centroid_long AS "stopLon",
+      COALESCE(SUM(ss.amount), 0)::double precision AS "totalSales",
+      COUNT(DISTINCT (ss.created_at::date, ss.truck_number))::int AS visits
+    FROM sale_stops ss
+    JOIN route_clusters rc
+      ON rc.route_cluster_id = ss.route_cluster_id
+     AND rc.pipeline_run_id = ss.pipeline_run_id
+    JOIN stop_clusters sc
+      ON sc.stop_cluster_id = ss.stop_cluster_id
+    WHERE ss.pipeline_run_id = ${activePipelineRunId}
+      AND rc.dow = ${day}
+      AND EXTRACT(MONTH FROM ss.created_at)::int IN (${Prisma.join(months)})
+    GROUP BY
+      ss.route_cluster_id,
+      ss.stop_cluster_id,
+      sc.address,
+      sc.centroid_lat,
+      sc.centroid_long
+  `);
+}
 
-type OrderedRouteResult = {
-  routeClusterId: number;
-  routeClusterName: string;
-  day: string;
-  centroid: [number, number];
-  color: string;
-  orderedStops: OrderedStop[];
-};
+function toSeasonalRouteCluster(
+  routeCluster: RouteClusterRecord,
+  stopRows: SeasonalStopRow[]
+): SeasonalRouteCluster | null {
+  if (stopRows.length === 0) {
+    return null;
+  }
+
+  const maxSales = Math.max(...stopRows.map((row) => row.totalSales), 0);
+  const maxVisits = Math.max(...stopRows.map((row) => row.visits), 0);
+  const stops = stopRows.map((row) => ({
+    stopClusterId: row.stopClusterId,
+    address: row.address ?? "Unknown address",
+    lat: row.stopLat,
+    lon: row.stopLon,
+    totalSales: row.totalSales,
+    visits: row.visits,
+    salesNorm: maxSales > 0 ? row.totalSales / maxSales : 0,
+    visitsNorm: maxVisits > 0 ? row.visits / maxVisits : 0,
+    score: (maxSales > 0 ? (row.totalSales / maxSales) * 1000 : 0) + (maxVisits > 0 ? row.visits / maxVisits : 0)
+  }));
+
+  return {
+    id: routeCluster.id,
+    dow: routeCluster.dow,
+    centroidLat: routeCluster.centroidLat,
+    centroidLong: routeCluster.centroidLong,
+    totalSalesAmount: stops.reduce((sum, stop) => sum + stop.totalSales, 0),
+    stops
+  };
+}
 
 function toOrderedRoute(
-  cluster: RouteClusterWithStops,
+  cluster: SeasonalRouteCluster,
   colorMap: Map<number, string>,
   routeNameMap: Map<number, string>,
   topStops: number
 ): OrderedRouteResult | null {
-  const candidateStops = cluster.stopScores
-    .filter((stopScore) => stopScore.stopCluster)
-    .sort((left, right) => (right.score ?? Number.NEGATIVE_INFINITY) - (left.score ?? Number.NEGATIVE_INFINITY))
-    .slice(0, topStops)
-    .map((stopScore) => toOrderedStop(stopScore));
+  const candidateStops = cluster.stops
+    .slice()
+    .sort((left, right) => right.score - left.score)
+    .slice(0, topStops);
 
   if (candidateStops.length === 0) {
     return null;
@@ -186,20 +262,6 @@ function toOrderedRoute(
     centroid: [cluster.centroidLat, cluster.centroidLong],
     color: colorMap.get(cluster.id) ?? "#1f77b4",
     orderedStops: orderStopsByDistance(candidateStops, [cluster.centroidLat, cluster.centroidLong])
-  };
-}
-
-function toOrderedStop(stopScore: StopScoreWithRelations): OrderedStop {
-  return {
-    stopClusterId: stopScore.stopClusterId,
-    address: stopScore.stopCluster.address ?? "Unknown address",
-    lat: stopScore.stopCluster.centroidLat,
-    lon: stopScore.stopCluster.centroidLong,
-    totalSales: stopScore.totalSales,
-    visits: stopScore.visits,
-    salesNorm: stopScore.salesNorm,
-    visitsNorm: stopScore.visitsNorm,
-    score: stopScore.score
   };
 }
 
@@ -249,7 +311,7 @@ function toRouteSummary(route: OrderedRouteResult): RouteSummaryDto {
     polyline,
     centroid: route.centroid,
     stopCount: route.orderedStops.length,
-    predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + (stop.score ?? 0), 0),
+    predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + stop.score, 0),
     totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
     totalAverageSaleAmount: route.orderedStops.reduce(
       (sum, stop) => sum + (stop.visits > 0 ? stop.totalSales / stop.visits : 0),
@@ -278,7 +340,7 @@ function toRouteDetail(
     color: colorMap.get(route.routeClusterId) ?? route.color,
     bounds: calculateBounds(polyline),
     polyline,
-    predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + (stop.score ?? 0), 0),
+    predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + stop.score, 0),
     totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
     totalAverageSaleAmount: route.orderedStops.reduce(
       (sum, stop) => sum + (stop.visits > 0 ? stop.totalSales / stop.visits : 0),
@@ -301,12 +363,10 @@ function toRouteDetail(
   };
 }
 
-function buildRouteClusterNameMap(clusters: RouteClusterWithStops[]) {
+function buildRouteClusterNameMap(clusters: SeasonalRouteCluster[]) {
   const baseNames = clusters.map((cluster) => {
-    const topScoringStop = [...cluster.stopScores]
-      .filter((stopScore) => stopScore.stopCluster)
-      .sort((left, right) => (right.score ?? Number.NEGATIVE_INFINITY) - (left.score ?? Number.NEGATIVE_INFINITY))[0];
-    const city = extractCityFromAddress(topScoringStop?.stopCluster.address) ?? "Unknown";
+    const topScoringStop = [...cluster.stops].sort((left, right) => right.score - left.score)[0];
+    const city = extractCityFromAddress(topScoringStop?.address) ?? "Unknown";
 
     return {
       routeClusterId: cluster.id,

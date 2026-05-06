@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseUnavailableError } from "@/lib/errors";
 import { badRequest, serverError, serviceUnavailable } from "@/lib/http";
 import { getRouteDetail } from "@/lib/routes";
-import { daySchema, routeClusterIdSchema, topStopsSchema } from "@/lib/validators";
+import { daySchema, monthsSchema, routeClusterIdSchema, topStopsSchema } from "@/lib/validators";
 
 export async function GET(request: NextRequest) {
   const dayParsed = daySchema.safeParse(request.nextUrl.searchParams.get("day"));
@@ -10,13 +10,14 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("routeClusterId")
   );
   const topStopsParsed = topStopsSchema.safeParse(request.nextUrl.searchParams.get("topStops") ?? "50");
+  const monthsParsed = monthsSchema.safeParse(request.nextUrl.searchParams.getAll("month"));
 
-  if (!dayParsed.success || !routeClusterParsed.success || !topStopsParsed.success) {
-    return badRequest("Valid day, routeClusterId, and topStops query parameters are required.");
+  if (!dayParsed.success || !routeClusterParsed.success || !topStopsParsed.success || !monthsParsed.success) {
+    return badRequest("Valid day, month, routeClusterId, and topStops query parameters are required.");
   }
 
   try {
-    const route = await getRouteDetail(dayParsed.data, routeClusterParsed.data, topStopsParsed.data);
+    const route = await getRouteDetail(dayParsed.data, monthsParsed.data, routeClusterParsed.data, topStopsParsed.data);
 
     if (!route) {
       return NextResponse.json({ error: "Route not found." }, { status: 404 });

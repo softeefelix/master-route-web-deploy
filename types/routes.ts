@@ -3,6 +3,11 @@ export type DayOption = {
   label: string;
 };
 
+export type MonthOption = {
+  value: number;
+  label: string;
+};
+
 export type RouteClusterOption = {
   id: number;
   label: string;

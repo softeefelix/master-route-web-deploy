@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
-import type { DayOption, RouteClusterOption, RouteDetailDto } from "@/types/routes";
+import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto } from "@/types/routes";
 
 type SidebarProps = {
   topStops: number;
   days: DayOption[];
+  months: MonthOption[];
+  selectedMonths: number[];
   routeClusters: RouteClusterOption[];
   selectedDay: string;
   selectedRouteClusterId: number | null;
@@ -15,6 +17,7 @@ type SidebarProps = {
   loadState: "idle" | "loading" | "ready" | "error";
   errorMessage: string;
   onDayChange: (day: string) => void;
+  onMonthsChange: (months: number[]) => void;
   onRouteClusterChange: (routeClusterId: number) => void;
   onApplyTopStops: (topStops: number) => void;
   onStopSelect: (stopClusterId: number) => void;
@@ -23,6 +26,8 @@ type SidebarProps = {
 export function Sidebar({
   topStops,
   days,
+  months,
+  selectedMonths,
   routeClusters,
   selectedDay,
   selectedRouteClusterId,
@@ -31,11 +36,13 @@ export function Sidebar({
   loadState,
   errorMessage,
   onDayChange,
+  onMonthsChange,
   onRouteClusterChange,
   onApplyTopStops,
   onStopSelect
 }: SidebarProps) {
   const [draftTopStops, setDraftTopStops] = useState<string>(String(topStops));
+  const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
 
   useEffect(() => {
     setDraftTopStops(String(topStops));
@@ -51,69 +58,126 @@ export function Sidebar({
   return (
     <aside className="relative z-10 flex h-[48vh] w-full flex-col border-b border-line bg-white/95 shadow-panel backdrop-blur md:h-screen md:max-w-[430px] md:min-w-[360px] md:border-b-0 md:border-r">
       <div className="sticky top-0 z-20 border-b border-line bg-white/96 px-4 py-4">
-        <div className="mb-1 text-lg font-semibold tracking-tight text-ink">Master Routes</div>
-        <div className="mb-4 text-sm text-slate-500">
-          Select a day and route cluster to sync the ordered stop list with the live map.
-        </div>
-        <div className="flex gap-3">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-            Day
-            <select
-              className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
-              value={selectedDay}
-              onChange={(event) => onDayChange(event.target.value)}
-            >
-              {days.map((day) => (
-                <option key={day.value} value={day.value}>
-                  {day.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-            Route Cluster
-            <select
-              className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
-              value={selectedRouteClusterId ?? ""}
-              onChange={(event) => onRouteClusterChange(Number(event.target.value))}
-            >
-              {routeClusters.map((cluster) => (
-                <option key={cluster.id} value={cluster.id}>
-                  {cluster.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="mt-3 flex items-end gap-2">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-            Top Stops Per Route
-            <input
-              inputMode="numeric"
-              pattern="[1-9][0-9]*"
-              min={1}
-              type="text"
-              className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
-              value={draftTopStops}
-              onChange={(event) => setDraftTopStops(event.target.value.replace(/\D/g, ""))}
-            />
-          </label>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="mb-1 text-lg font-semibold tracking-tight text-ink">Master Routes</div>
+            <div className="text-sm text-slate-500">
+              Click the menu icon to filter/view routes
+            </div>
+          </div>
           <button
             type="button"
-            className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
-            disabled={!canApplyTopStops}
-            onClick={() => {
-              if (isTopStopsValid) {
-                onApplyTopStops(parsedTopStops);
-              }
-            }}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-line bg-white text-ink transition hover:bg-slate-50"
+            onClick={() => setIsFiltersOpen((current) => !current)}
+            aria-expanded={isFiltersOpen}
+            aria-label={isFiltersOpen ? "Close filters" : "Open filters"}
           >
-            Apply
+            <span className="flex flex-col gap-1.5">
+              <span className="block h-0.5 w-5 rounded-full bg-current" />
+              <span className="block h-0.5 w-5 rounded-full bg-current" />
+              <span className="block h-0.5 w-5 rounded-full bg-current" />
+            </span>
           </button>
         </div>
-        <div className="mt-4 rounded-2xl border border-accent/10 bg-canvas px-3 py-2 text-xs text-slate-600">
-          Tip: Switching the day redraws only that day&apos;s overlays. Use Top Stops to limit each route to its highest-scoring stops.
-        </div>
+        {isFiltersOpen ? (
+          <div className="mt-4 rounded-3xl border border-line bg-slate-50/90 p-4">
+            <div className="flex gap-3">
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                Day
+                <select
+                  className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                  value={selectedDay}
+                  onChange={(event) => onDayChange(event.target.value)}
+                >
+                  {days.map((day) => (
+                    <option key={day.value} value={day.value}>
+                      {day.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-3">
+              <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Months</div>
+              <div className="flex flex-wrap gap-2">
+                {months.map((month) => {
+                  const isSelected = selectedMonths.includes(month.value);
+                  const shortLabel = month.label.slice(0, 3).toUpperCase();
+
+                  return (
+                    <button
+                      key={month.value}
+                      type="button"
+                      className={[
+                        "rounded-full border px-3 py-2 text-xs font-semibold tracking-[0.16em] transition",
+                        isSelected
+                          ? "border-ink bg-ink text-white shadow-sm"
+                          : "border-line bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-100"
+                      ].join(" ")}
+                      onClick={() => {
+                        const nextMonths = isSelected
+                          ? selectedMonths.filter((value) => value !== month.value)
+                          : [...selectedMonths, month.value].sort((left, right) => left - right);
+
+                        if (nextMonths.length > 0) {
+                          onMonthsChange(nextMonths);
+                        }
+                      }}
+                      aria-pressed={isSelected}
+                    >
+                      {shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-3 flex gap-3">
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                Route Cluster
+                <select
+                  className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                  value={selectedRouteClusterId ?? ""}
+                  onChange={(event) => onRouteClusterChange(Number(event.target.value))}
+                >
+                  {routeClusters.map((cluster) => (
+                    <option key={cluster.id} value={cluster.id}>
+                      {cluster.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 flex items-end gap-2">
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                Top Stops Per Route
+                <input
+                  inputMode="numeric"
+                  pattern="[1-9][0-9]*"
+                  min={1}
+                  type="text"
+                  className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                  value={draftTopStops}
+                  onChange={(event) => setDraftTopStops(event.target.value.replace(/\D/g, ""))}
+                />
+              </label>
+              <button
+                type="button"
+                className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
+                disabled={!canApplyTopStops}
+                onClick={() => {
+                  if (isTopStopsValid) {
+                    onApplyTopStops(parsedTopStops);
+                  }
+                }}
+              >
+                Apply
+              </button>
+            </div>
+            <div className="mt-4 rounded-2xl border border-accent/10 bg-canvas px-3 py-2 text-xs text-slate-600">
+              Tip: Click one or several month buttons to recompute scores from `sale_stops` using only those months.
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
