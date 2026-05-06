@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState, useTransition } from "react";
 import type { DayOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
 import { Sidebar } from "@/app/components/Sidebar";
+import { fetchJson } from "@/lib/api";
 
 const RouteMap = dynamic(() => import("@/app/components/RouteMap").then((mod) => mod.RouteMap), {
   ssr: false
@@ -33,12 +34,11 @@ export function MasterRoutesApp() {
       setLoadState("loading");
       setErrorMessage("");
 
-      const daysResponse = await fetch("/api/days", { cache: "no-store" });
-      if (!daysResponse.ok) {
-        throw new Error("Unable to load available days.");
-      }
-
-      const availableDays = (await daysResponse.json()) as DayOption[];
+      const availableDays = await fetchJson<DayOption[]>(
+        "/api/days",
+        { cache: "no-store" },
+        "Unable to load available days."
+      );
       setDays(availableDays);
 
       const firstDay = availableDays[0]?.value;
@@ -63,17 +63,18 @@ export function MasterRoutesApp() {
     });
 
     try {
-      const [clustersResponse, summaryResponse] = await Promise.all([
-        fetch(`/api/route-clusters?day=${encodeURIComponent(day)}`, { cache: "no-store" }),
-        fetch(`/api/routes/summary?day=${encodeURIComponent(day)}&topStops=${nextTopStops}`, { cache: "no-store" })
+      const [clusters, summaries] = await Promise.all([
+        fetchJson<RouteClusterOption[]>(
+          `/api/route-clusters?day=${encodeURIComponent(day)}`,
+          { cache: "no-store" },
+          "Unable to load route-cluster data for the selected day."
+        ),
+        fetchJson<RouteSummaryDto[]>(
+          `/api/routes/summary?day=${encodeURIComponent(day)}&topStops=${nextTopStops}`,
+          { cache: "no-store" },
+          "Unable to load route-cluster data for the selected day."
+        )
       ]);
-
-      if (!clustersResponse.ok || !summaryResponse.ok) {
-        throw new Error("Unable to load route-cluster data for the selected day.");
-      }
-
-      const clusters = (await clustersResponse.json()) as RouteClusterOption[];
-      const summaries = (await summaryResponse.json()) as RouteSummaryDto[];
       const firstClusterId = clusters[0]?.id ?? null;
       const nextSelectedRouteClusterId =
         preferredRouteClusterId != null && clusters.some((cluster) => cluster.id === preferredRouteClusterId)
@@ -111,16 +112,11 @@ export function MasterRoutesApp() {
     });
 
     try {
-      const response = await fetch(
+      const detail = await fetchJson<RouteDetailDto>(
         `/api/routes?day=${encodeURIComponent(day)}&routeClusterId=${routeClusterId}&topStops=${nextTopStops}`,
-        { cache: "no-store" }
+        { cache: "no-store" },
+        "Unable to load the selected route cluster."
       );
-
-      if (!response.ok) {
-        throw new Error("Unable to load the selected route cluster.");
-      }
-
-      const detail = (await response.json()) as RouteDetailDto;
       setRouteDetail(detail);
       setSelectedStopId(
         preferredStopId != null && detail.stops.some((stop) => stop.stopClusterId === preferredStopId)

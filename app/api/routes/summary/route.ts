@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { badRequest, serverError } from "@/lib/http";
+import { isDatabaseUnavailableError } from "@/lib/errors";
+import { badRequest, serverError, serviceUnavailable } from "@/lib/http";
 import { getRouteSummaries } from "@/lib/routes";
 import { daySchema, topStopsSchema } from "@/lib/validators";
 
@@ -16,6 +17,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(summaries);
   } catch (error) {
     console.error(error);
+    if (isDatabaseUnavailableError(error)) {
+      return serviceUnavailable("Data is temporarily unavailable because the database connection failed. Please retry in a moment.");
+    }
     return serverError("Unable to load route summaries.");
   }
 }

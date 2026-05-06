@@ -20,6 +20,19 @@ type RouteClusterWithStops = Prisma.RouteClusterGetPayload<{
 }>;
 
 async function getActivePipelineRunId() {
+
+  // CL 2026-05-06 Adding this for local pipeline testing
+  // const override = process.env.PIPELINE_RUN_ID_OVERRIDE;
+
+  // if (override) {
+  //   const parsed = Number(override);
+  //   if (!Number.isInteger(parsed) || parsed <= 0) {
+  //     throw new Error("PIPELINE_RUN_ID_OVERRIDE must be a positive integer.");
+  //   }
+  //   return parsed;
+  // }
+  // End of Addition
+
   const activeRun = await prisma.pipelineRun.findFirst({
     where: { status: "ACTIVE" },
     select: { id: true },
