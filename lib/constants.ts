@@ -8,6 +8,9 @@ export const DAY_ORDER = [
   "Sunday"
 ] as const;
 
+export const DEFAULT_ROUTE_CLUSTER_LIMIT = 17;
+export const DEFAULT_TOP_STOPS = 50;
+
 export const ROUTE_COLORS = [
   "#1f77b4",
   "#ff7f0e",

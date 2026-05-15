@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { DEFAULT_ROUTE_CLUSTER_LIMIT } from "@/lib/constants";
 import { prisma } from "@/lib/prisma";
 import { buildDayRouteColorMap, buildRouteTitle, calculateBounds, sortDays } from "@/lib/utils";
 import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
@@ -97,8 +98,12 @@ export async function getMonths(): Promise<MonthOption[]> {
   }));
 }
 
-export async function getRouteClusterOptions(day: string, months: number[]): Promise<RouteClusterOption[]> {
-  const clusters = await getSeasonalRouteClustersForDay(day, months);
+export async function getRouteClusterOptions(
+  day: string,
+  months: number[],
+  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT
+): Promise<RouteClusterOption[]> {
+  const clusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit);
   const routeNameMap = buildRouteClusterNameMap(clusters);
 
   return clusters
@@ -110,8 +115,13 @@ export async function getRouteClusterOptions(day: string, months: number[]): Pro
     .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }));
 }
 
-export async function getRouteSummaries(day: string, months: number[], topStops: number): Promise<RouteSummaryDto[]> {
-  const clusters = await getSeasonalRouteClustersForDay(day, months);
+export async function getRouteSummaries(
+  day: string,
+  months: number[],
+  topStops: number,
+  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT
+): Promise<RouteSummaryDto[]> {
+  const clusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit);
   const colorMap = buildDayRouteColorMap(clusters.map((cluster) => cluster.id));
   const routeNameMap = buildRouteClusterNameMap(clusters);
 
@@ -125,9 +135,10 @@ export async function getRouteDetail(
   day: string,
   months: number[],
   routeClusterId: number,
-  topStops: number
+  topStops: number,
+  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT
 ): Promise<RouteDetailDto | null> {
-  const dayClusters = await getSeasonalRouteClustersForDay(day, months);
+  const dayClusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit);
   const colorMap = buildDayRouteColorMap(dayClusters.map((cluster) => cluster.id));
   const routeNameMap = buildRouteClusterNameMap(dayClusters);
   const cluster = dayClusters.find((item) => item.id === routeClusterId) ?? null;
@@ -140,7 +151,11 @@ export async function getRouteDetail(
   return toRouteDetail(ordered, colorMap, routeNameMap);
 }
 
-async function getSeasonalRouteClustersForDay(day: string, months: number[]) {
+async function getSeasonalRouteClustersForDay(
+  day: string,
+  months: number[],
+  routeClusterLimit: number
+) {
   const activePipelineRunId = await getActivePipelineRunId();
   const routeClusters = await prisma.routeCluster.findMany({
     where: {
@@ -177,7 +192,7 @@ async function getSeasonalRouteClustersForDay(day: string, months: number[]) {
 
       return left.id - right.id;
     })
-    .slice(0, 17);
+    .slice(0, routeClusterLimit);
 }
 
 async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, months: number[]) {

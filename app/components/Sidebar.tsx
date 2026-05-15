@@ -6,6 +6,7 @@ import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto } from 
 
 type SidebarProps = {
   topStops: number;
+  routeClusterLimit: number;
   days: DayOption[];
   months: MonthOption[];
   selectedMonths: number[];
@@ -19,12 +20,13 @@ type SidebarProps = {
   onDayChange: (day: string) => void;
   onMonthsChange: (months: number[]) => void;
   onRouteClusterChange: (routeClusterId: number) => void;
-  onApplyTopStops: (topStops: number) => void;
+  onApplyDisplayLimits: (values: { topStops: number; routeClusterLimit: number }) => void;
   onStopSelect: (stopClusterId: number) => void;
 };
 
 export function Sidebar({
   topStops,
+  routeClusterLimit,
   days,
   months,
   selectedMonths,
@@ -38,21 +40,31 @@ export function Sidebar({
   onDayChange,
   onMonthsChange,
   onRouteClusterChange,
-  onApplyTopStops,
+  onApplyDisplayLimits,
   onStopSelect
 }: SidebarProps) {
   const [draftTopStops, setDraftTopStops] = useState<string>(String(topStops));
+  const [draftRouteClusterLimit, setDraftRouteClusterLimit] = useState<string>(String(routeClusterLimit));
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
 
   useEffect(() => {
     setDraftTopStops(String(topStops));
   }, [topStops]);
 
+  useEffect(() => {
+    setDraftRouteClusterLimit(String(routeClusterLimit));
+  }, [routeClusterLimit]);
+
   const parsedTopStops = Number(draftTopStops);
+  const parsedRouteClusterLimit = Number(draftRouteClusterLimit);
   const isTopStopsValid = Number.isInteger(parsedTopStops) && parsedTopStops > 0;
-  const canApplyTopStops = useMemo(
-    () => isTopStopsValid && parsedTopStops !== topStops,
-    [isTopStopsValid, parsedTopStops, topStops]
+  const isRouteClusterLimitValid = Number.isInteger(parsedRouteClusterLimit) && parsedRouteClusterLimit > 0;
+  const canApplyDisplayLimits = useMemo(
+    () =>
+      isTopStopsValid &&
+      isRouteClusterLimitValid &&
+      (parsedTopStops !== topStops || parsedRouteClusterLimit !== routeClusterLimit),
+    [isRouteClusterLimitValid, isTopStopsValid, parsedRouteClusterLimit, parsedTopStops, routeClusterLimit, topStops]
   );
 
   return (
@@ -147,30 +159,47 @@ export function Sidebar({
                 </select>
               </label>
             </div>
-            <div className="mt-3 flex items-end gap-2">
-              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-                Top Stops Per Route
-                <input
-                  inputMode="numeric"
-                  pattern="[1-9][0-9]*"
-                  min={1}
-                  type="text"
-                  className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
-                  value={draftTopStops}
-                  onChange={(event) => setDraftTopStops(event.target.value.replace(/\D/g, ""))}
-                />
-              </label>
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                  # of Route
+                  <input
+                    inputMode="numeric"
+                    pattern="[1-9][0-9]*"
+                    min={1}
+                    type="text"
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                    value={draftRouteClusterLimit}
+                    onChange={(event) => setDraftRouteClusterLimit(event.target.value.replace(/\D/g, ""))}
+                  />
+                </label>
+                <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                  # of Stops
+                  <input
+                    inputMode="numeric"
+                    pattern="[1-9][0-9]*"
+                    min={1}
+                    type="text"
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                    value={draftTopStops}
+                    onChange={(event) => setDraftTopStops(event.target.value.replace(/\D/g, ""))}
+                  />
+                </label>
+              </div>
               <button
                 type="button"
-                className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
-                disabled={!canApplyTopStops}
+                className="w-fit rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
+                disabled={!canApplyDisplayLimits}
                 onClick={() => {
-                  if (isTopStopsValid) {
-                    onApplyTopStops(parsedTopStops);
+                  if (isTopStopsValid && isRouteClusterLimitValid) {
+                    onApplyDisplayLimits({
+                      topStops: parsedTopStops,
+                      routeClusterLimit: parsedRouteClusterLimit
+                    });
                   }
                 }}
               >
-                Apply
+                Apply Limits
               </button>
             </div>
             <div className="mt-4 rounded-2xl border border-accent/10 bg-canvas px-3 py-2 text-xs text-slate-600">
