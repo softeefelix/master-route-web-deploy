@@ -2,7 +2,14 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState, useTransition } from "react";
-import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
+import type {
+  DayOption,
+  MonthOption,
+  PersistentRouteClusterDto,
+  RouteClusterOption,
+  RouteDetailDto,
+  RouteSummaryDto
+} from "@/types/routes";
 import { Sidebar } from "@/app/components/Sidebar";
 import { fetchJson } from "@/lib/api";
 import { DEFAULT_ROUTE_CLUSTER_LIMIT, DEFAULT_TOP_STOPS } from "@/lib/constants";
@@ -20,6 +27,7 @@ export function MasterRoutesApp() {
   const [months, setMonths] = useState<MonthOption[]>([]);
   const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
   const [routeClusters, setRouteClusters] = useState<RouteClusterOption[]>([]);
+  const [persistentRouteClusterIds, setPersistentRouteClusterIds] = useState<number[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>("");
   const [selectedRouteClusterId, setSelectedRouteClusterId] = useState<number | null>(null);
   const [routeSummaries, setRouteSummaries] = useState<RouteSummaryDto[]>([]);
@@ -27,6 +35,8 @@ export function MasterRoutesApp() {
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [persistentRouteErrorMessage, setPersistentRouteErrorMessage] = useState<string>("");
+  const [isPersistentRoutesUpdating, setIsPersistentRoutesUpdating] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -38,18 +48,18 @@ export function MasterRoutesApp() {
       setLoadState("loading");
       setErrorMessage("");
 
-      const availableDays = await fetchJson<DayOption[]>(
-        "/api/days",
-        { cache: "no-store" },
-        "Unable to load available days."
-      );
-      const availableMonths = await fetchJson<MonthOption[]>(
-        "/api/months",
-        { cache: "no-store" },
-        "Unable to load available months."
-      );
+      const [availableDays, availableMonths, persistentRoutes] = await Promise.all([
+        fetchJson<DayOption[]>("/api/days", { cache: "no-store" }, "Unable to load available days."),
+        fetchJson<MonthOption[]>("/api/months", { cache: "no-store" }, "Unable to load available months."),
+        fetchJson<PersistentRouteClusterDto[]>(
+          "/api/persistent-route-clusters",
+          { cache: "no-store" },
+          "Unable to load persistent route clusters."
+        )
+      ]);
       setDays(availableDays);
       setMonths(availableMonths);
+      setPersistentRouteClusterIds(toPersistentRouteClusterIds(persistentRoutes));
 
       const firstDay = availableDays[0]?.value;
       const initialMonths = availableMonths.map((month) => month.value);
@@ -172,6 +182,62 @@ export function MasterRoutesApp() {
     }
   }
 
+  async function addPersistentRouteCluster(routeClusterId: number) {
+    return updatePersistentRouteClusters(
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routeClusterId })
+      },
+      "Unable to add persistent route cluster."
+    );
+  }
+
+  async function removePersistentRouteCluster(routeClusterId: number) {
+    return updatePersistentRouteClusters(
+      {
+        method: "DELETE"
+      },
+      "Unable to remove persistent route cluster.",
+      routeClusterId
+    );
+  }
+
+  async function updatePersistentRouteClusters(
+    requestInit: RequestInit,
+    fallbackMessage: string,
+    routeClusterId?: number
+  ) {
+    try {
+      setIsPersistentRoutesUpdating(true);
+      setPersistentRouteErrorMessage("");
+
+      const query = routeClusterId == null ? "" : `?routeClusterId=${encodeURIComponent(String(routeClusterId))}`;
+      const persistentRoutes = await fetchJson<PersistentRouteClusterDto[]>(
+        `/api/persistent-route-clusters${query}`,
+        requestInit,
+        fallbackMessage
+      );
+      setPersistentRouteClusterIds(toPersistentRouteClusterIds(persistentRoutes));
+
+      if (selectedDay) {
+        await loadDay(selectedDay, selectedMonths, selectedRouteClusterId, topStops, routeClusterLimit);
+      }
+
+      return true;
+    } catch (error) {
+      console.error(error);
+      setPersistentRouteErrorMessage(error instanceof Error ? error.message : fallbackMessage);
+      return false;
+    } finally {
+      setIsPersistentRoutesUpdating(false);
+    }
+  }
+
+  function toPersistentRouteClusterIds(persistentRoutes: PersistentRouteClusterDto[]) {
+    return persistentRoutes.map((route) => route.routeClusterId);
+  }
+
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden md:flex-row">
       <Sidebar
@@ -181,12 +247,15 @@ export function MasterRoutesApp() {
         months={months}
         selectedMonths={selectedMonths}
         routeClusters={routeClusters}
+        persistentRouteClusterIds={persistentRouteClusterIds}
         selectedDay={selectedDay}
         selectedRouteClusterId={selectedRouteClusterId}
         routeDetail={routeDetail}
         selectedStopId={selectedStopId}
         loadState={loadState}
         errorMessage={errorMessage}
+        persistentRouteErrorMessage={persistentRouteErrorMessage}
+        isPersistentRoutesUpdating={isPersistentRoutesUpdating}
         onDayChange={(day) => void loadDay(day)}
         onMonthsChange={(monthValues) => {
           if (selectedDay) {
@@ -209,6 +278,8 @@ export function MasterRoutesApp() {
             );
           }
         }}
+        onAddPersistentRouteCluster={addPersistentRouteCluster}
+        onRemovePersistentRouteCluster={removePersistentRouteCluster}
         onStopSelect={setSelectedStopId}
       />
       <section className="relative min-h-[52vh] flex-1 border-t border-line/80 bg-slate-100 md:min-h-0 md:border-l md:border-t-0">

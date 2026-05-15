@@ -40,6 +40,7 @@ async function main() {
   const groupedRoutes = groupByRoute(rows);
   const runMonth = startOfMonthFromSourcePath(SOURCE_CSV);
 
+  await prisma.$executeRaw`DELETE FROM persistent_route_cluster`;
   await prisma.stopScore.deleteMany();
   await prisma.routeCluster.deleteMany();
   await prisma.stopCluster.deleteMany();

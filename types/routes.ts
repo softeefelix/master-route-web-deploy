@@ -14,6 +14,10 @@ export type RouteClusterOption = {
   stopCount: number;
 };
 
+export type PersistentRouteClusterDto = {
+  routeClusterId: number;
+};
+
 export type RouteStopDto = {
   stopClusterId: number;
   visitOrder: number;

@@ -11,16 +11,21 @@ type SidebarProps = {
   months: MonthOption[];
   selectedMonths: number[];
   routeClusters: RouteClusterOption[];
+  persistentRouteClusterIds: number[];
   selectedDay: string;
   selectedRouteClusterId: number | null;
   routeDetail: RouteDetailDto | null;
   selectedStopId: number | null;
   loadState: "idle" | "loading" | "ready" | "error";
   errorMessage: string;
+  persistentRouteErrorMessage: string;
+  isPersistentRoutesUpdating: boolean;
   onDayChange: (day: string) => void;
   onMonthsChange: (months: number[]) => void;
   onRouteClusterChange: (routeClusterId: number) => void;
   onApplyDisplayLimits: (values: { topStops: number; routeClusterLimit: number }) => void;
+  onAddPersistentRouteCluster: (routeClusterId: number) => Promise<boolean>;
+  onRemovePersistentRouteCluster: (routeClusterId: number) => Promise<boolean>;
   onStopSelect: (stopClusterId: number) => void;
 };
 
@@ -31,20 +36,26 @@ export function Sidebar({
   months,
   selectedMonths,
   routeClusters,
+  persistentRouteClusterIds,
   selectedDay,
   selectedRouteClusterId,
   routeDetail,
   selectedStopId,
   loadState,
   errorMessage,
+  persistentRouteErrorMessage,
+  isPersistentRoutesUpdating,
   onDayChange,
   onMonthsChange,
   onRouteClusterChange,
   onApplyDisplayLimits,
+  onAddPersistentRouteCluster,
+  onRemovePersistentRouteCluster,
   onStopSelect
 }: SidebarProps) {
   const [draftTopStops, setDraftTopStops] = useState<string>(String(topStops));
   const [draftRouteClusterLimit, setDraftRouteClusterLimit] = useState<string>(String(routeClusterLimit));
+  const [draftPersistentRouteClusterId, setDraftPersistentRouteClusterId] = useState<string>("");
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
 
   useEffect(() => {
@@ -57,8 +68,12 @@ export function Sidebar({
 
   const parsedTopStops = Number(draftTopStops);
   const parsedRouteClusterLimit = Number(draftRouteClusterLimit);
+  const parsedPersistentRouteClusterId = Number(draftPersistentRouteClusterId);
   const isTopStopsValid = Number.isInteger(parsedTopStops) && parsedTopStops > 0;
   const isRouteClusterLimitValid = Number.isInteger(parsedRouteClusterLimit) && parsedRouteClusterLimit > 0;
+  const isPersistentRouteClusterIdValid =
+    Number.isInteger(parsedPersistentRouteClusterId) && parsedPersistentRouteClusterId > 0;
+  const isPersistentRouteClusterAlreadyAdded = persistentRouteClusterIds.includes(parsedPersistentRouteClusterId);
   const canApplyDisplayLimits = useMemo(
     () =>
       isTopStopsValid &&
@@ -66,6 +81,8 @@ export function Sidebar({
       (parsedTopStops !== topStops || parsedRouteClusterLimit !== routeClusterLimit),
     [isRouteClusterLimitValid, isTopStopsValid, parsedRouteClusterLimit, parsedTopStops, routeClusterLimit, topStops]
   );
+  const canAddPersistentRouteCluster =
+    isPersistentRouteClusterIdValid && !isPersistentRouteClusterAlreadyAdded && !isPersistentRoutesUpdating;
 
   return (
     <aside className="relative z-10 flex h-[48vh] w-full flex-col border-b border-line bg-white/95 shadow-panel backdrop-blur md:h-screen md:max-w-[430px] md:min-w-[360px] md:border-b-0 md:border-r">
@@ -201,6 +218,67 @@ export function Sidebar({
               >
                 Apply Limits
               </button>
+            </div>
+            <div className="mt-4 border-t border-line/80 pt-3">
+              <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                Persistent Routes
+              </div>
+              <div className="flex items-end gap-2">
+                <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                  Route ID
+                  <input
+                    inputMode="numeric"
+                    pattern="[1-9][0-9]*"
+                    min={1}
+                    type="text"
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                    value={draftPersistentRouteClusterId}
+                    onChange={(event) => setDraftPersistentRouteClusterId(event.target.value.replace(/\D/g, ""))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
+                  disabled={!canAddPersistentRouteCluster}
+                  onClick={() => {
+                    if (canAddPersistentRouteCluster) {
+                      void onAddPersistentRouteCluster(parsedPersistentRouteClusterId).then((wasAdded) => {
+                        if (wasAdded) {
+                          setDraftPersistentRouteClusterId("");
+                        }
+                      });
+                    }
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+              {persistentRouteErrorMessage ? (
+                <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {persistentRouteErrorMessage}
+                </div>
+              ) : null}
+              {persistentRouteClusterIds.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {persistentRouteClusterIds.map((routeClusterId) => (
+                    <span
+                      key={routeClusterId}
+                      className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink"
+                    >
+                      ID: {routeClusterId}
+                      <button
+                        type="button"
+                        className="text-slate-500 transition hover:text-red-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                        disabled={isPersistentRoutesUpdating}
+                        onClick={() => void onRemovePersistentRouteCluster(routeClusterId)}
+                        aria-label={`Remove persistent route cluster ${routeClusterId}`}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="mt-4 rounded-2xl border border-accent/10 bg-canvas px-3 py-2 text-xs text-slate-600">
               Tip: Click one or several month buttons to recompute scores from `sale_stops` using only those months.

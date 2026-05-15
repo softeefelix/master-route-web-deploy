@@ -33,10 +33,18 @@ model RouteCluster {
   dow             String      @db.VarChar(10)
   pipelineRun     PipelineRun @relation(fields: [pipelineRunId], references: [id])
   stopScores      StopScore[]
+  persistentRoute PersistentRouteCluster?
 
   @@index([pipelineRunId, dow, id])
   @@index([dow, id])
   @@map("route_clusters")
+}
+
+model PersistentRouteCluster {
+  routeClusterId Int          @id @map("route_cluster_id")
+  routeCluster   RouteCluster @relation(fields: [routeClusterId], references: [id])
+
+  @@map("persistent_route_cluster")
 }
 
 model StopCluster {

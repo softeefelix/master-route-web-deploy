@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { DEFAULT_ROUTE_CLUSTER_LIMIT } from "@/lib/constants";
+import { getPersistentRouteClusterIds } from "@/lib/persistent-route-clusters";
 import { prisma } from "@/lib/prisma";
 import { buildDayRouteColorMap, buildRouteTitle, calculateBounds, sortDays } from "@/lib/utils";
 import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
@@ -182,7 +183,7 @@ async function getSeasonalRouteClustersForDay(
     seasonalRowsByRoute.set(row.routeClusterId, bucket);
   }
 
-  return routeClusters
+  const rankedClusters = routeClusters
     .map((routeCluster) => toSeasonalRouteCluster(routeCluster, seasonalRowsByRoute.get(routeCluster.id) ?? []))
     .filter((cluster): cluster is SeasonalRouteCluster => cluster !== null)
     .sort((left, right) => {
@@ -191,8 +192,38 @@ async function getSeasonalRouteClustersForDay(
       }
 
       return left.id - right.id;
-    })
-    .slice(0, routeClusterLimit);
+    });
+
+  const persistentRouteClusterIds = new Set(await getPersistentRouteClusterIds());
+  return selectVisibleRouteClusters(rankedClusters, routeClusterLimit, persistentRouteClusterIds);
+}
+
+function selectVisibleRouteClusters(
+  rankedClusters: SeasonalRouteCluster[],
+  routeClusterLimit: number,
+  persistentRouteClusterIds: Set<number>
+) {
+  const selectedRouteClusterIds = new Set<number>();
+
+  for (const cluster of rankedClusters) {
+    if (persistentRouteClusterIds.has(cluster.id)) {
+      selectedRouteClusterIds.add(cluster.id);
+    }
+  }
+
+  let selectedRegularRouteCount = 0;
+  for (const cluster of rankedClusters) {
+    if (selectedRegularRouteCount >= routeClusterLimit) {
+      break;
+    }
+
+    if (!persistentRouteClusterIds.has(cluster.id)) {
+      selectedRouteClusterIds.add(cluster.id);
+      selectedRegularRouteCount += 1;
+    }
+  }
+
+  return rankedClusters.filter((cluster) => selectedRouteClusterIds.has(cluster.id));
 }
 
 async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, months: number[]) {
@@ -404,7 +435,7 @@ function buildRouteClusterNameMap(clusters: SeasonalRouteCluster[]) {
         cityIndexes.set(item.city, nextIndex);
 
         const suffix = totalForCity > 1 ? ` - ${nextIndex}` : "";
-        return [item.routeClusterId, `${item.city}${suffix} ${item.routeClusterId}`];
+        return [item.routeClusterId, `${item.city}${suffix} ID: ${item.routeClusterId}`];
       })
   );
 }
