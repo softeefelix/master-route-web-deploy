@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type {
   DayOption,
   MonthOption,
@@ -11,6 +11,12 @@ import type {
   RouteSummaryDto
 } from "@/types/routes";
 import { Sidebar } from "@/app/components/Sidebar";
+import {
+  clearArrivalTime,
+  getArrivalTimes,
+  saveArrivalTime,
+  sortStopsByArrivalTime
+} from "@/lib/arrival-times";
 import { fetchJson } from "@/lib/api";
 import { DEFAULT_ROUTE_CLUSTER_LIMIT, DEFAULT_TOP_STOPS } from "@/lib/constants";
 
@@ -32,6 +38,7 @@ export function MasterRoutesApp() {
   const [selectedRouteClusterId, setSelectedRouteClusterId] = useState<number | null>(null);
   const [routeSummaries, setRouteSummaries] = useState<RouteSummaryDto[]>([]);
   const [routeDetail, setRouteDetail] = useState<RouteDetailDto | null>(null);
+  const [arrivalTimes, setArrivalTimes] = useState<Record<string, string>>({});
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -95,6 +102,7 @@ export function MasterRoutesApp() {
       setRouteClusters([]);
       setRouteSummaries([]);
       setRouteDetail(null);
+      setArrivalTimes({});
       setSelectedRouteClusterId(null);
       setSelectedStopId(null);
       setLoadState("ready");
@@ -134,6 +142,7 @@ export function MasterRoutesApp() {
 
       if (nextSelectedRouteClusterId == null) {
         setRouteDetail(null);
+        setArrivalTimes({});
         setLoadState("ready");
         return;
       }
@@ -168,6 +177,7 @@ export function MasterRoutesApp() {
         { cache: "no-store" },
         "Unable to load the selected route cluster."
       );
+      setArrivalTimes(getArrivalTimes(detail.routeClusterId, detail.day));
       setRouteDetail(detail);
       setSelectedStopId(
         preferredStopId != null && detail.stops.some((stop) => stop.stopClusterId === preferredStopId)
@@ -238,6 +248,63 @@ export function MasterRoutesApp() {
     return persistentRoutes.map((route) => route.routeClusterId);
   }
 
+  function updateStopArrivalTime(stopClusterId: number, time: string) {
+    if (!routeDetail) {
+      return;
+    }
+
+    if (time === "") {
+      clearArrivalTime(routeDetail.routeClusterId, routeDetail.day, stopClusterId);
+    } else {
+      saveArrivalTime(routeDetail.routeClusterId, routeDetail.day, stopClusterId, time);
+    }
+
+    setArrivalTimes(getArrivalTimes(routeDetail.routeClusterId, routeDetail.day));
+  }
+
+  const routeDetailWithArrivalTimes = useMemo<RouteDetailDto | null>(() => {
+    if (!routeDetail) {
+      return null;
+    }
+
+    const orderedStops = sortStopsByArrivalTime(routeDetail.stops, arrivalTimes).map((stop, index) => ({
+      ...stop,
+      visitOrder: index + 1
+    }));
+
+    return {
+      ...routeDetail,
+      polyline: orderedStops.map((stop) => [stop.lat, stop.lon] as [number, number]),
+      stops: orderedStops
+    };
+  }, [arrivalTimes, routeDetail]);
+
+  const routeSummariesWithArrivalTimes = useMemo<RouteSummaryDto[]>(() => {
+    if (!routeDetailWithArrivalTimes) {
+      return routeSummaries;
+    }
+
+    return routeSummaries.map((summary) => {
+      if (
+        summary.routeClusterId !== routeDetailWithArrivalTimes.routeClusterId ||
+        summary.day !== routeDetailWithArrivalTimes.day
+      ) {
+        return summary;
+      }
+
+      return {
+        ...summary,
+        bounds: routeDetailWithArrivalTimes.bounds,
+        polyline: routeDetailWithArrivalTimes.polyline,
+        stops: routeDetailWithArrivalTimes.stops.map((stop) => ({
+          stopClusterId: stop.stopClusterId,
+          lat: stop.lat,
+          lon: stop.lon
+        }))
+      };
+    });
+  }, [routeDetailWithArrivalTimes, routeSummaries]);
+
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden md:flex-row">
       <Sidebar
@@ -250,7 +317,8 @@ export function MasterRoutesApp() {
         persistentRouteClusterIds={persistentRouteClusterIds}
         selectedDay={selectedDay}
         selectedRouteClusterId={selectedRouteClusterId}
-        routeDetail={routeDetail}
+        routeDetail={routeDetailWithArrivalTimes}
+        arrivalTimes={arrivalTimes}
         selectedStopId={selectedStopId}
         loadState={loadState}
         errorMessage={errorMessage}
@@ -281,11 +349,12 @@ export function MasterRoutesApp() {
         onAddPersistentRouteCluster={addPersistentRouteCluster}
         onRemovePersistentRouteCluster={removePersistentRouteCluster}
         onStopSelect={setSelectedStopId}
+        onArrivalTimeChange={updateStopArrivalTime}
       />
       <section className="relative min-h-[52vh] flex-1 border-t border-line/80 bg-slate-100 md:min-h-0 md:border-l md:border-t-0">
         <RouteMap
-          routeSummaries={routeSummaries}
-          routeDetail={routeDetail}
+          routeSummaries={routeSummariesWithArrivalTimes}
+          routeDetail={routeDetailWithArrivalTimes}
           selectedStopId={selectedStopId}
           isLoading={loadState === "loading" || isPending}
           onRouteSelect={(routeClusterId, stopClusterId) =>

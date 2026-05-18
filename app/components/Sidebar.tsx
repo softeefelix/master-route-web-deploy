@@ -15,6 +15,7 @@ type SidebarProps = {
   selectedDay: string;
   selectedRouteClusterId: number | null;
   routeDetail: RouteDetailDto | null;
+  arrivalTimes: Record<string, string>;
   selectedStopId: number | null;
   loadState: "idle" | "loading" | "ready" | "error";
   errorMessage: string;
@@ -27,6 +28,7 @@ type SidebarProps = {
   onAddPersistentRouteCluster: (routeClusterId: number) => Promise<boolean>;
   onRemovePersistentRouteCluster: (routeClusterId: number) => Promise<boolean>;
   onStopSelect: (stopClusterId: number) => void;
+  onArrivalTimeChange: (stopClusterId: number, time: string) => void;
 };
 
 export function Sidebar({
@@ -40,6 +42,7 @@ export function Sidebar({
   selectedDay,
   selectedRouteClusterId,
   routeDetail,
+  arrivalTimes,
   selectedStopId,
   loadState,
   errorMessage,
@@ -51,7 +54,8 @@ export function Sidebar({
   onApplyDisplayLimits,
   onAddPersistentRouteCluster,
   onRemovePersistentRouteCluster,
-  onStopSelect
+  onStopSelect,
+  onArrivalTimeChange
 }: SidebarProps) {
   const [draftTopStops, setDraftTopStops] = useState<string>(String(topStops));
   const [draftRouteClusterLimit, setDraftRouteClusterLimit] = useState<string>(String(routeClusterLimit));
@@ -328,23 +332,39 @@ export function Sidebar({
         <ol className="m-0 list-decimal space-y-2 pl-5">
           {routeDetail?.stops.map((stop) => (
             <li key={stop.stopClusterId}>
-              <button
-                type="button"
+              <div
                 className={[
                   "w-full rounded-2xl border px-3 py-3 text-left transition",
                   selectedStopId === stop.stopClusterId
                     ? "border-accent bg-accent/5 shadow-sm"
                     : "border-transparent bg-transparent hover:border-line hover:bg-slate-50"
                 ].join(" ")}
-                onClick={() => onStopSelect(stop.stopClusterId)}
               >
-                <div className="mb-1 text-sm font-medium text-ink">
-                  #{stop.visitOrder} {"\u2014"} {stop.address}
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => onStopSelect(stop.stopClusterId)}
+                  >
+                    <div className="mb-1 text-sm font-medium text-ink">
+                      #{stop.visitOrder} {"\u2014"} {stop.address}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)} | Visit #{stop.visitOrder}
+                    </div>
+                  </button>
+                  <label className="flex shrink-0 flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Arrival
+                    <input
+                      type="time"
+                      className="w-[6.75rem] rounded-xl border border-line bg-white px-2 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                      value={arrivalTimes[String(stop.stopClusterId)] ?? ""}
+                      onChange={(event) => onArrivalTimeChange(stop.stopClusterId, event.target.value)}
+                      aria-label={`Arrival time for stop cluster ${stop.stopClusterId}`}
+                    />
+                  </label>
                 </div>
-                <div className="text-xs text-slate-500">
-                  Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)} | Visit #{stop.visitOrder}
-                </div>
-              </button>
+              </div>
             </li>
           ))}
         </ol>
