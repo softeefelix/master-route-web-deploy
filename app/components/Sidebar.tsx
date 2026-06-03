@@ -30,6 +30,8 @@ type SidebarProps = {
   onRemovePersistentRouteCluster: (routeClusterId: number) => Promise<boolean>;
   onStopSelect: (stopClusterId: number) => void;
   onArrivalTimeChange: (stopClusterId: number, time: string) => void;
+  hiddenStopIds: Set<number>;
+  onStopVisibilityToggle: (stopClusterId: number) => void;
 };
 
 export function Sidebar({
@@ -57,7 +59,9 @@ export function Sidebar({
   onAddPersistentRouteCluster,
   onRemovePersistentRouteCluster,
   onStopSelect,
-  onArrivalTimeChange
+  onArrivalTimeChange,
+  hiddenStopIds,
+  onStopVisibilityToggle
 }: SidebarProps) {
   const [draftTopStops, setDraftTopStops] = useState<string>(String(topStops));
   const [draftRouteClusterLimit, setDraftRouteClusterLimit] = useState<string>(String(routeClusterLimit));
@@ -91,6 +95,19 @@ export function Sidebar({
   const canAddPersistentRouteCluster =
     isPersistentRouteClusterIdValid && !isPersistentRouteClusterAlreadyAdded && !isPersistentRoutesUpdating;
   const stopOrderKey = routeDetail?.stops.map((stop) => stop.stopClusterId).join("|") ?? "";
+  const visibleStopOrders = useMemo(() => {
+    const orders = new Map<number, number>();
+    let nextOrder = 1;
+
+    for (const stop of routeDetail?.stops ?? []) {
+      if (!hiddenStopIds.has(stop.stopClusterId)) {
+        orders.set(stop.stopClusterId, nextOrder);
+        nextOrder += 1;
+      }
+    }
+
+    return orders;
+  }, [hiddenStopIds, routeDetail]);
 
   useEffect(() => {
     if (recentlyEditedStopId == null) {
@@ -350,59 +367,120 @@ export function Sidebar({
           </div>
         ) : null}
 
-        <ol className="m-0 list-decimal space-y-2 pl-5">
-          {routeDetail?.stops.map((stop) => (
-            <li
-              key={stop.stopClusterId}
-              ref={(node) => {
-                if (node) {
-                  stopItemRefs.current.set(stop.stopClusterId, node);
-                } else {
-                  stopItemRefs.current.delete(stop.stopClusterId);
-                }
-              }}
-            >
-              <div
-                className={[
-                  "w-full rounded-2xl border px-3 py-3 text-left transition",
-                  selectedStopId === stop.stopClusterId
-                    ? "border-accent bg-accent/5 shadow-sm"
-                    : "border-transparent bg-transparent hover:border-line hover:bg-slate-50"
-                ].join(" ")}
+        <ol className="m-0 space-y-2">
+          {routeDetail?.stops.map((stop) => {
+            const isStopHidden = hiddenStopIds.has(stop.stopClusterId);
+            const isStopSelected = selectedStopId === stop.stopClusterId;
+            const visibleStopOrder = visibleStopOrders.get(stop.stopClusterId);
+
+            return (
+              <li
+                key={stop.stopClusterId}
+                ref={(node) => {
+                  if (node) {
+                    stopItemRefs.current.set(stop.stopClusterId, node);
+                  } else {
+                    stopItemRefs.current.delete(stop.stopClusterId);
+                  }
+                }}
+                className="flex items-stretch gap-2"
               >
-                <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => onStopSelect(stop.stopClusterId)}
-                  >
-                    <div className="mb-1 text-sm font-medium text-ink">
-                    {stop.address}
+                <span
+                  className={[
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                    isStopHidden
+                      ? "border-slate-200 bg-slate-100 text-slate-400"
+                      : "border-accent/30 bg-accent/10 text-accent"
+                  ].join(" ")}
+                  aria-label={
+                    isStopHidden
+                      ? `Stop cluster ${stop.stopClusterId} is hidden from the map`
+                      : `Visible route stop ${visibleStopOrder}`
+                  }
+                >
+                  {isStopHidden ? "-" : visibleStopOrder}
+                </span>
+                <div
+                  className={[
+                    "w-full rounded-2xl border px-3 py-3 text-left transition",
+                    isStopHidden
+                      ? "border-line bg-slate-100/80 shadow-none"
+                      : isStopSelected
+                        ? "border-accent bg-accent/5 shadow-sm"
+                        : "border-transparent bg-transparent hover:border-line hover:bg-slate-50"
+                  ].join(" ")}
+                >
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => onStopSelect(stop.stopClusterId)}
+                    >
+                      <div
+                        className={[
+                          "mb-1 text-sm font-medium",
+                          isStopHidden ? "text-slate-400" : "text-ink"
+                        ].join(" ")}
+                      >
+                        {stop.address}
+                      </div>
+                      <div className={isStopHidden ? "text-xs text-slate-400" : "text-xs text-slate-500"}>
+                        Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)}
+                      </div>
+                    </button>
+                    <div className="flex w-36 shrink-0 flex-col gap-2">
+                      <label
+                        className={[
+                          "flex flex-col gap-1 text-[10px] font-semibold",
+                          isStopHidden ? "text-slate-400" : "text-slate-500"
+                        ].join(" ")}
+                      >
+                        <span className="tracking-[0.16em]">Arrival Time</span>
+                        <input
+                          type="time"
+                          className={[
+                            "w-full rounded-xl border px-3 py-1.5 text-sm font-semibold outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10",
+                            isStopHidden
+                              ? "border-slate-200 bg-slate-100 text-slate-400"
+                              : "border-line bg-white text-ink"
+                          ].join(" ")}
+                          value={arrivalTimes[String(stop.stopClusterId)] ?? ""}
+                          onChange={(event) => onArrivalTimeChange(stop.stopClusterId, event.target.value)}
+                          aria-label={`Arrival time for stop cluster ${stop.stopClusterId}`}
+                        />
+                        {stop.pastArrivalTime ? (
+                          <span className="leading-tight">
+                            <span className="block">Past Visit Time</span>
+                            <span
+                              className={
+                                isStopHidden ? "block text-xs text-slate-400" : "block text-xs text-slate-600"
+                              }
+                            >
+                              {stop.pastArrivalTime}
+                            </span>
+                          </span>
+                        ) : null}
+                      </label>
+                      <button
+                        type="button"
+                        className={[
+                          "w-full rounded-xl border px-3 py-1.5 text-xs font-semibold transition",
+                          isStopHidden
+                            ? "border-slate-300 bg-white text-slate-600 hover:border-accent hover:text-accent"
+                            : "border-line bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+                        ].join(" ")}
+                        onClick={() => onStopVisibilityToggle(stop.stopClusterId)}
+                        aria-pressed={isStopHidden}
+                        aria-label={`${isStopHidden ? "Show" : "Hide"} stop cluster ${stop.stopClusterId} on the map`}
+                      >
+                        {isStopHidden ? "Show" : "Hide"}
+                      </button>
                     </div>
-                    <div className="text-xs text-slate-500">
-                      Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)}
-                    </div>
-                  </button>
-                  <label className="flex w-36 shrink-0 flex-col gap-1 text-[10px] font-semibold text-slate-500">
-                    <span className="tracking-[0.16em]">Arrival Time</span>
-                    <input
-                      type="time"
-                      className="w-full rounded-xl border border-line bg-white px-3 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
-                      value={arrivalTimes[String(stop.stopClusterId)] ?? ""}
-                      onChange={(event) => onArrivalTimeChange(stop.stopClusterId, event.target.value)}
-                      aria-label={`Arrival time for stop cluster ${stop.stopClusterId}`}
-                    />
-                    {stop.pastArrivalTime ? (
-                      <span className="leading-tight">
-                        <span className="block">Past Visit Time</span>
-                        <span className="block text-xs text-slate-600">{stop.pastArrivalTime}</span>
-                      </span>
-                    ) : null}
-                  </label>
+                  </div>
                 </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ol>
       </div>
     </aside>

@@ -121,7 +121,12 @@ export function RouteMap({
         <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} />
 
         {routeSummaries.map((summary) => {
-          const isSelectedRoute = routeDetail?.routeClusterId === summary.routeClusterId;
+          const isSelectedRoute =
+            routeDetail?.routeClusterId === summary.routeClusterId && routeDetail.day === summary.day;
+
+          if (summary.polyline.length === 0) {
+            return null;
+          }
 
           return (
             <Polyline
@@ -145,8 +150,9 @@ export function RouteMap({
         })}
 
         {routeSummaries.flatMap((summary) =>
-          summary.stops.map((stop, index) => {
-            const isSelectedRouteStop = routeDetail?.routeClusterId === summary.routeClusterId;
+          summary.stops.map((stop) => {
+            const isSelectedRouteStop =
+              routeDetail?.routeClusterId === summary.routeClusterId && routeDetail.day === summary.day;
             if (isSelectedRouteStop) {
               return null;
             }
@@ -294,7 +300,9 @@ function FitToRoute({
       return;
     }
 
-    const routeKey = `${routeDetail.day}-${routeDetail.routeClusterId}`;
+    const routeKey = `${routeDetail.day}-${routeDetail.routeClusterId}-${routeDetail.stops
+      .map((stop) => stop.stopClusterId)
+      .join("|")}`;
     if (routeKey === lastRouteKey.current) {
       return;
     }

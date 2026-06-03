@@ -19,6 +19,7 @@ import {
 } from "@/lib/arrival-times";
 import { fetchJson } from "@/lib/api";
 import { DEFAULT_ROUTE_CLUSTER_LIMIT, DEFAULT_TOP_STOPS } from "@/lib/constants";
+import { calculateBounds } from "@/lib/utils";
 
 const RouteMap = dynamic(() => import("@/app/components/RouteMap").then((mod) => mod.RouteMap), {
   ssr: false
@@ -39,6 +40,7 @@ export function MasterRoutesApp() {
   const [routeSummaries, setRouteSummaries] = useState<RouteSummaryDto[]>([]);
   const [routeDetail, setRouteDetail] = useState<RouteDetailDto | null>(null);
   const [arrivalTimes, setArrivalTimes] = useState<Record<string, string>>({});
+  const [hiddenStopsByRoute, setHiddenStopsByRoute] = useState<Record<string, number[]>>({});
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null);
   const [recentlyEditedStopId, setRecentlyEditedStopId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -269,6 +271,31 @@ export function MasterRoutesApp() {
     setRecentlyEditedStopId(stopClusterId);
   }
 
+  function toggleStopVisibility(stopClusterId: number) {
+    if (!routeDetailWithArrivalTimes) {
+      return;
+    }
+
+    const routeKey = buildRouteVisibilityKey(routeDetailWithArrivalTimes);
+    setHiddenStopsByRoute((current) => {
+      const currentHiddenStopIds = current[routeKey] ?? [];
+      const nextHiddenStopIds = currentHiddenStopIds.includes(stopClusterId)
+        ? currentHiddenStopIds.filter((hiddenStopId) => hiddenStopId !== stopClusterId)
+        : [...currentHiddenStopIds, stopClusterId];
+
+      if (nextHiddenStopIds.length === 0) {
+        const next = { ...current };
+        delete next[routeKey];
+        return next;
+      }
+
+      return {
+        ...current,
+        [routeKey]: nextHiddenStopIds
+      };
+    });
+  }
+
   const routeDetailWithArrivalTimes = useMemo<RouteDetailDto | null>(() => {
     if (!routeDetail) {
       return null;
@@ -286,31 +313,60 @@ export function MasterRoutesApp() {
     };
   }, [arrivalTimes, routeDetail]);
 
-  const routeSummariesWithArrivalTimes = useMemo<RouteSummaryDto[]>(() => {
+  const hiddenStopIds = useMemo(() => {
     if (!routeDetailWithArrivalTimes) {
+      return new Set<number>();
+    }
+
+    return new Set(hiddenStopsByRoute[buildRouteVisibilityKey(routeDetailWithArrivalTimes)] ?? []);
+  }, [hiddenStopsByRoute, routeDetailWithArrivalTimes]);
+
+  const routeDetailForMap = useMemo<RouteDetailDto | null>(() => {
+    if (!routeDetailWithArrivalTimes || hiddenStopIds.size === 0) {
+      return routeDetailWithArrivalTimes;
+    }
+
+    const visibleStops = routeDetailWithArrivalTimes.stops
+      .filter((stop) => !hiddenStopIds.has(stop.stopClusterId))
+      .map((stop, index) => ({
+        ...stop,
+        visitOrder: index + 1
+      }));
+    const visiblePolyline = visibleStops.map((stop) => [stop.lat, stop.lon] as [number, number]);
+
+    return {
+      ...routeDetailWithArrivalTimes,
+      bounds: visiblePolyline.length > 0 ? calculateBounds(visiblePolyline) : routeDetailWithArrivalTimes.bounds,
+      polyline: visiblePolyline,
+      stops: visibleStops
+    };
+  }, [hiddenStopIds, routeDetailWithArrivalTimes]);
+
+  const routeSummariesForMap = useMemo<RouteSummaryDto[]>(() => {
+    if (!routeDetailForMap) {
       return routeSummaries;
     }
 
     return routeSummaries.map((summary) => {
       if (
-        summary.routeClusterId !== routeDetailWithArrivalTimes.routeClusterId ||
-        summary.day !== routeDetailWithArrivalTimes.day
+        summary.routeClusterId !== routeDetailForMap.routeClusterId ||
+        summary.day !== routeDetailForMap.day
       ) {
         return summary;
       }
 
       return {
         ...summary,
-        bounds: routeDetailWithArrivalTimes.bounds,
-        polyline: routeDetailWithArrivalTimes.polyline,
-        stops: routeDetailWithArrivalTimes.stops.map((stop) => ({
+        bounds: routeDetailForMap.bounds,
+        polyline: routeDetailForMap.polyline,
+        stops: routeDetailForMap.stops.map((stop) => ({
           stopClusterId: stop.stopClusterId,
           lat: stop.lat,
           lon: stop.lon
         }))
       };
     });
-  }, [routeDetailWithArrivalTimes, routeSummaries]);
+  }, [routeDetailForMap, routeSummaries]);
 
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden md:flex-row">
@@ -358,11 +414,13 @@ export function MasterRoutesApp() {
         onRemovePersistentRouteCluster={removePersistentRouteCluster}
         onStopSelect={setSelectedStopId}
         onArrivalTimeChange={updateStopArrivalTime}
+        hiddenStopIds={hiddenStopIds}
+        onStopVisibilityToggle={toggleStopVisibility}
       />
       <section className="relative min-h-[52vh] flex-1 border-t border-line/80 bg-slate-100 md:min-h-0 md:border-l md:border-t-0">
         <RouteMap
-          routeSummaries={routeSummariesWithArrivalTimes}
-          routeDetail={routeDetailWithArrivalTimes}
+          routeSummaries={routeSummariesForMap}
+          routeDetail={routeDetailForMap}
           selectedStopId={selectedStopId}
           isLoading={loadState === "loading" || isPending}
           onRouteSelect={(routeClusterId, stopClusterId) =>
@@ -373,4 +431,8 @@ export function MasterRoutesApp() {
       </section>
     </main>
   );
+}
+
+function buildRouteVisibilityKey(routeDetail: Pick<RouteDetailDto, "day" | "routeClusterId">) {
+  return `${routeDetail.day}:${routeDetail.routeClusterId}`;
 }
