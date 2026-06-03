@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
 import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto } from "@/types/routes";
 
@@ -17,6 +17,7 @@ type SidebarProps = {
   routeDetail: RouteDetailDto | null;
   arrivalTimes: Record<string, string>;
   selectedStopId: number | null;
+  recentlyEditedStopId: number | null;
   loadState: "idle" | "loading" | "ready" | "error";
   errorMessage: string;
   persistentRouteErrorMessage: string;
@@ -44,6 +45,7 @@ export function Sidebar({
   routeDetail,
   arrivalTimes,
   selectedStopId,
+  recentlyEditedStopId,
   loadState,
   errorMessage,
   persistentRouteErrorMessage,
@@ -61,6 +63,7 @@ export function Sidebar({
   const [draftRouteClusterLimit, setDraftRouteClusterLimit] = useState<string>(String(routeClusterLimit));
   const [draftPersistentRouteClusterId, setDraftPersistentRouteClusterId] = useState<string>("");
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
+  const stopItemRefs = useRef(new Map<number, HTMLLIElement>());
 
   useEffect(() => {
     setDraftTopStops(String(topStops));
@@ -87,6 +90,24 @@ export function Sidebar({
   );
   const canAddPersistentRouteCluster =
     isPersistentRouteClusterIdValid && !isPersistentRouteClusterAlreadyAdded && !isPersistentRoutesUpdating;
+  const stopOrderKey = routeDetail?.stops.map((stop) => stop.stopClusterId).join("|") ?? "";
+
+  useEffect(() => {
+    if (recentlyEditedStopId == null) {
+      return;
+    }
+
+    const stopItem = stopItemRefs.current.get(recentlyEditedStopId);
+    if (!stopItem) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      stopItem.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [recentlyEditedStopId, stopOrderKey]);
 
   return (
     <aside className="relative z-10 flex h-[48vh] w-full flex-col border-b border-line bg-white/95 shadow-panel backdrop-blur md:h-screen md:max-w-[430px] md:min-w-[360px] md:border-b-0 md:border-r">
@@ -331,7 +352,16 @@ export function Sidebar({
 
         <ol className="m-0 list-decimal space-y-2 pl-5">
           {routeDetail?.stops.map((stop) => (
-            <li key={stop.stopClusterId}>
+            <li
+              key={stop.stopClusterId}
+              ref={(node) => {
+                if (node) {
+                  stopItemRefs.current.set(stop.stopClusterId, node);
+                } else {
+                  stopItemRefs.current.delete(stop.stopClusterId);
+                }
+              }}
+            >
               <div
                 className={[
                   "w-full rounded-2xl border px-3 py-3 text-left transition",

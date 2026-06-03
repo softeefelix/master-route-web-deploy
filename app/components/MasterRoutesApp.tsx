@@ -40,6 +40,7 @@ export function MasterRoutesApp() {
   const [routeDetail, setRouteDetail] = useState<RouteDetailDto | null>(null);
   const [arrivalTimes, setArrivalTimes] = useState<Record<string, string>>({});
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null);
+  const [recentlyEditedStopId, setRecentlyEditedStopId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [persistentRouteErrorMessage, setPersistentRouteErrorMessage] = useState<string>("");
@@ -105,6 +106,7 @@ export function MasterRoutesApp() {
       setArrivalTimes({});
       setSelectedRouteClusterId(null);
       setSelectedStopId(null);
+      setRecentlyEditedStopId(null);
       setLoadState("ready");
       return;
     }
@@ -114,6 +116,7 @@ export function MasterRoutesApp() {
       setSelectedDay(day);
       setSelectedMonths(monthValues);
       setSelectedStopId(null);
+      setRecentlyEditedStopId(null);
     });
 
     try {
@@ -143,6 +146,7 @@ export function MasterRoutesApp() {
       if (nextSelectedRouteClusterId == null) {
         setRouteDetail(null);
         setArrivalTimes({});
+        setRecentlyEditedStopId(null);
         setLoadState("ready");
         return;
       }
@@ -168,6 +172,7 @@ export function MasterRoutesApp() {
       setSelectedRouteClusterId(routeClusterId);
       setSelectedMonths(monthValues);
       setSelectedStopId(preferredStopId ?? null);
+      setRecentlyEditedStopId(null);
     });
 
     try {
@@ -260,6 +265,8 @@ export function MasterRoutesApp() {
     }
 
     setArrivalTimes(getArrivalTimes(routeDetail.routeClusterId, routeDetail.day));
+    setSelectedStopId(stopClusterId);
+    setRecentlyEditedStopId(stopClusterId);
   }
 
   const routeDetailWithArrivalTimes = useMemo<RouteDetailDto | null>(() => {
@@ -320,6 +327,7 @@ export function MasterRoutesApp() {
         routeDetail={routeDetailWithArrivalTimes}
         arrivalTimes={arrivalTimes}
         selectedStopId={selectedStopId}
+        recentlyEditedStopId={recentlyEditedStopId}
         loadState={loadState}
         errorMessage={errorMessage}
         persistentRouteErrorMessage={persistentRouteErrorMessage}
