@@ -27,6 +27,7 @@ export type RouteStopDto = {
   stopType: string | null;
   label: string | null;
   pastSalesPerDaySameDow: number | null;
+  pastArrivalTime: string | null;
   averageSale: number | null;
   otherDowAvgSalesPerDay: number | null;
   predictedSalesPerDay: number | null;

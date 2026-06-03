@@ -347,21 +347,27 @@ export function Sidebar({
                     onClick={() => onStopSelect(stop.stopClusterId)}
                   >
                     <div className="mb-1 text-sm font-medium text-ink">
-                      #{stop.visitOrder} {"\u2014"} {stop.address}
+                    {stop.address}
                     </div>
                     <div className="text-xs text-slate-500">
-                      Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)} | Visit #{stop.visitOrder}
+                      Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)}
                     </div>
                   </button>
-                  <label className="flex shrink-0 flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Arrival
+                  <label className="flex w-36 shrink-0 flex-col gap-1 text-[10px] font-semibold text-slate-500">
+                    <span className="tracking-[0.16em]">Arrival Time</span>
                     <input
                       type="time"
-                      className="w-[6.75rem] rounded-xl border border-line bg-white px-2 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                      className="w-full rounded-xl border border-line bg-white px-3 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
                       value={arrivalTimes[String(stop.stopClusterId)] ?? ""}
                       onChange={(event) => onArrivalTimeChange(stop.stopClusterId, event.target.value)}
                       aria-label={`Arrival time for stop cluster ${stop.stopClusterId}`}
                     />
+                    {stop.pastArrivalTime ? (
+                      <span className="leading-tight">
+                        <span className="block">Past Visit Time</span>
+                        <span className="block text-xs text-slate-600">{stop.pastArrivalTime}</span>
+                      </span>
+                    ) : null}
                   </label>
                 </div>
               </div>

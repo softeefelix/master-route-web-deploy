@@ -20,6 +20,8 @@ type SeasonalStopRow = {
   stopLon: number;
   totalSales: number;
   visits: number;
+  firstArrivalMinute: number | null;
+  lastArrivalMinute: number | null;
 };
 
 type SeasonalStop = {
@@ -29,6 +31,7 @@ type SeasonalStop = {
   lon: number;
   totalSales: number;
   visits: number;
+  pastArrivalTime: string | null;
   salesNorm: number;
   visitsNorm: number;
   score: number;
@@ -55,6 +58,24 @@ type OrderedRouteResult = {
 };
 
 async function getActivePipelineRunId() {
+  // CL For local pipeline testing, do not remove
+  const override = process.env.PIPELINE_RUN_ID_OVERRIDE;
+
+  if (override) {
+    let parsed: bigint;
+    try {
+      parsed = BigInt(override);
+    } catch {
+      throw new Error("PIPELINE_RUN_ID_OVERRIDE must be a positive integer.");
+    }
+
+    if (parsed <= 0n) {
+      throw new Error("PIPELINE_RUN_ID_OVERRIDE must be a positive integer.");
+    }
+
+    return parsed;
+  }
+
   const activeRun = await prisma.pipelineRun.findFirst({
     where: { status: "ACTIVE" },
     select: { id: true },
@@ -235,7 +256,15 @@ async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, mon
       sc.centroid_lat AS "stopLat",
       sc.centroid_long AS "stopLon",
       COALESCE(SUM(ss.amount), 0)::double precision AS "totalSales",
-      COUNT(DISTINCT (ss.created_at::date, ss.truck_number))::int AS visits
+      COUNT(DISTINCT (ss.created_at::date, ss.truck_number))::int AS visits,
+      MIN(
+        EXTRACT(HOUR FROM ss.created_at AT TIME ZONE 'America/Los_Angeles')::int * 60 +
+        EXTRACT(MINUTE FROM ss.created_at AT TIME ZONE 'America/Los_Angeles')::int
+      )::int AS "firstArrivalMinute",
+      MAX(
+        EXTRACT(HOUR FROM ss.created_at AT TIME ZONE 'America/Los_Angeles')::int * 60 +
+        EXTRACT(MINUTE FROM ss.created_at AT TIME ZONE 'America/Los_Angeles')::int
+      )::int AS "lastArrivalMinute"
     FROM sale_stops ss
     JOIN route_clusters rc
       ON rc.route_cluster_id = ss.route_cluster_id
@@ -271,6 +300,7 @@ function toSeasonalRouteCluster(
     lon: row.stopLon,
     totalSales: row.totalSales,
     visits: row.visits,
+    pastArrivalTime: buildPastArrivalTime(row),
     salesNorm: maxSales > 0 ? row.totalSales / maxSales : 0,
     visitsNorm: maxVisits > 0 ? row.visits / maxVisits : 0,
     score: (maxSales > 0 ? (row.totalSales / maxSales) * 1000 : 0) + (maxVisits > 0 ? row.visits / maxVisits : 0)
@@ -401,12 +431,41 @@ function toRouteDetail(
       stopType: null,
       label: null,
       pastSalesPerDaySameDow: stop.totalSales,
+      pastArrivalTime: stop.pastArrivalTime,
       averageSale: stop.visits > 0 ? stop.totalSales / stop.visits : null,
       otherDowAvgSalesPerDay: stop.visitsNorm,
       predictedSalesPerDay: stop.score,
       salesMatchesWithin50m: stop.visits
     }))
   };
+}
+
+function buildPastArrivalTime({
+  visits,
+  firstArrivalMinute,
+  lastArrivalMinute
+}: Pick<SeasonalStopRow, "visits" | "firstArrivalMinute" | "lastArrivalMinute">) {
+  if (firstArrivalMinute == null) {
+    return null;
+  }
+
+  const firstArrivalTime = formatClockMinute(firstArrivalMinute);
+
+  if (visits <= 1 || lastArrivalMinute == null || firstArrivalMinute === lastArrivalMinute) {
+    return firstArrivalTime;
+  }
+
+  return `${firstArrivalTime} - ${formatClockMinute(lastArrivalMinute)}`;
+}
+
+function formatClockMinute(totalMinutes: number) {
+  const normalizedMinutes = ((totalMinutes % 1440) + 1440) % 1440;
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minutes = normalizedMinutes % 60;
+  const hour12 = hours % 12 || 12;
+  const suffix = hours >= 12 ? "PM" : "AM";
+
+  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
 function buildRouteClusterNameMap(clusters: SeasonalRouteCluster[]) {
