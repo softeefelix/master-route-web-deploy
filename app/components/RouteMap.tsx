@@ -43,34 +43,33 @@ const endIcon = L.divIcon({
   popupAnchor: [8, -26]
 });
 
-function createMidRouteIcon(color: string, size = 30) {
+const SELECTED_ROUTE_COLOR = "#00A7E1";
+const TOP_STOP_PIN_COLOR = "#F17720";
+
+function createNumberedRouteIcon(color: string, visitOrder: number, size = 34) {
+  const label = String(visitOrder);
   const iconAnchorX = Math.round(size * 0.29);
   const iconAnchorY = Math.round(size * 0.88);
   const popupAnchorY = -Math.round(size * 0.76);
   return L.divIcon({
     className: "route-pin-icon",
-    html: `<div class="route-pin route-pin--mid" style="--pin-color:${color}; width:${size}px; height:${size}px;"><div class="route-pin__glyph">&#9679;</div></div>`,
+    html: `<div class="route-pin route-pin--mid" style="--pin-color:${color}; --pin-glyph-size:${getVisitOrderFontSize(label)}px; width:${size}px; height:${size}px;"><div class="route-pin__glyph">${label}</div></div>`,
     iconSize: [size, size],
     iconAnchor: [iconAnchorX, iconAnchorY],
     popupAnchor: [8, popupAnchorY]
   });
 }
 
-function createDollarRouteIcon(color: string) {
-  return createMidRouteIconWithGlyph(color, "$", 40);
-}
+function getVisitOrderFontSize(label: string) {
+  if (label.length >= 3) {
+    return 11;
+  }
 
-function createMidRouteIconWithGlyph(color: string, glyph: string, size = 34) {
-  const iconAnchorX = Math.round(size * 0.29);
-  const iconAnchorY = Math.round(size * 0.88);
-  const popupAnchorY = -Math.round(size * 0.76);
-  return L.divIcon({
-    className: "route-pin-icon",
-    html: `<div class="route-pin route-pin--mid" style="--pin-color:${color}; width:${size}px; height:${size}px;"><div class="route-pin__glyph">${glyph}</div></div>`,
-    iconSize: [size, size],
-    iconAnchor: [iconAnchorX, iconAnchorY],
-    popupAnchor: [8, popupAnchorY]
-  });
+  if (label.length === 2) {
+    return 13;
+  }
+
+  return 15;
 }
 
 export function RouteMap({
@@ -121,25 +120,29 @@ export function RouteMap({
         <Pane name="stops" style={{ zIndex: 450 }} />
         <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} />
 
-        {routeSummaries.map((summary) => (
-          <Polyline
-            key={`${summary.day}-${summary.routeClusterId}`}
-            pathOptions={{
-              color: summary.color,
-              weight: routeDetail?.routeClusterId === summary.routeClusterId ? 5 : 3,
-              opacity: routeDetail?.routeClusterId === summary.routeClusterId ? 0.95 : 0.5
-            }}
-            positions={summary.polyline}
-            pane="routes"
-            eventHandlers={{
-              click: () => onRouteSelect(summary.routeClusterId)
-            }}
-          >
-            <Tooltip sticky className="route-tooltip">
-              {summary.day} {"\u2014"} {summary.routeClusterName}
-            </Tooltip>
-          </Polyline>
-        ))}
+        {routeSummaries.map((summary) => {
+          const isSelectedRoute = routeDetail?.routeClusterId === summary.routeClusterId;
+
+          return (
+            <Polyline
+              key={`${summary.day}-${summary.routeClusterId}`}
+              pathOptions={{
+                color: isSelectedRoute ? SELECTED_ROUTE_COLOR : summary.color,
+                weight: isSelectedRoute ? 5 : 3,
+                opacity: isSelectedRoute ? 0.95 : 0.5
+              }}
+              positions={summary.polyline}
+              pane="routes"
+              eventHandlers={{
+                click: () => onRouteSelect(summary.routeClusterId)
+              }}
+            >
+              <Tooltip sticky className="route-tooltip">
+                {summary.day} {"\u2014"} {summary.routeClusterName}
+              </Tooltip>
+            </Polyline>
+          );
+        })}
 
         {routeSummaries.flatMap((summary) =>
           summary.stops.map((stop, index) => {
@@ -208,8 +211,8 @@ export function RouteMap({
               center={[stop.lat, stop.lon]}
               icon={
                 topScoringStopIds.has(stop.stopClusterId)
-                  ? createDollarRouteIcon(routeDetail.color)
-                  : createMidRouteIcon(routeDetail.color, 34)
+                  ? createNumberedRouteIcon(TOP_STOP_PIN_COLOR, stop.visitOrder, 40)
+                  : createNumberedRouteIcon(SELECTED_ROUTE_COLOR, stop.visitOrder)
               }
               isOpen={isSelected}
               onClick={() => onStopSelect(stop.stopClusterId)}

@@ -78,7 +78,7 @@ body {
   place-items: center;
   transform: rotate(45deg);
   color: #fff;
-  font-size: 15px;
+  font-size: var(--pin-glyph-size, 15px);
   font-weight: 800;
   z-index: 1;
 }
