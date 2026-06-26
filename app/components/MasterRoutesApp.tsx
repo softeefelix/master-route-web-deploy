@@ -367,72 +367,160 @@ export function MasterRoutesApp() {
       };
     });
   }, [routeDetailForMap, routeSummaries]);
-
   return (
-    <main className="flex h-screen w-screen flex-col overflow-hidden md:flex-row">
-      <Sidebar
-        topStops={topStops}
-        routeClusterLimit={routeClusterLimit}
-        days={days}
-        months={months}
-        selectedMonths={selectedMonths}
-        routeClusters={routeClusters}
-        persistentRouteClusterIds={persistentRouteClusterIds}
-        selectedDay={selectedDay}
-        selectedRouteClusterId={selectedRouteClusterId}
-        routeDetail={routeDetailWithArrivalTimes}
-        arrivalTimes={arrivalTimes}
-        selectedStopId={selectedStopId}
-        recentlyEditedStopId={recentlyEditedStopId}
-        loadState={loadState}
-        errorMessage={errorMessage}
-        persistentRouteErrorMessage={persistentRouteErrorMessage}
-        isPersistentRoutesUpdating={isPersistentRoutesUpdating}
-        onDayChange={(day) => void loadDay(day)}
-        onMonthsChange={(monthValues) => {
-          if (selectedDay) {
-            void loadDay(selectedDay, monthValues);
-          }
-        }}
-        onRouteClusterChange={(routeClusterId) =>
-          void loadRoute(selectedDay, selectedMonths, routeClusterId, topStops, routeClusterLimit)
-        }
-        onApplyDisplayLimits={(values) => {
-          setTopStops(values.topStops);
-          setRouteClusterLimit(values.routeClusterLimit);
-          if (selectedDay) {
-            void loadDay(
-              selectedDay,
-              selectedMonths,
-              selectedRouteClusterId,
-              values.topStops,
-              values.routeClusterLimit
-            );
-          }
-        }}
-        onAddPersistentRouteCluster={addPersistentRouteCluster}
-        onRemovePersistentRouteCluster={removePersistentRouteCluster}
-        onStopSelect={setSelectedStopId}
-        onArrivalTimeChange={updateStopArrivalTime}
-        hiddenStopIds={hiddenStopIds}
-        onStopVisibilityToggle={toggleStopVisibility}
-      />
-      <section className="relative min-h-[52vh] flex-1 border-t border-line/80 bg-slate-100 md:min-h-0 md:border-l md:border-t-0">
-        <RouteMap
-          routeSummaries={routeSummariesForMap}
-          routeDetail={routeDetailForMap}
+    <>
+      <main className="screen-route-app flex h-screen w-screen flex-col overflow-hidden md:flex-row">
+        <Sidebar
+          topStops={topStops}
+          routeClusterLimit={routeClusterLimit}
+          days={days}
+          months={months}
+          selectedMonths={selectedMonths}
+          routeClusters={routeClusters}
+          persistentRouteClusterIds={persistentRouteClusterIds}
+          selectedDay={selectedDay}
+          selectedRouteClusterId={selectedRouteClusterId}
+          routeDetail={routeDetailWithArrivalTimes}
+          arrivalTimes={arrivalTimes}
           selectedStopId={selectedStopId}
-          isLoading={loadState === "loading" || isPending}
-          onRouteSelect={(routeClusterId, stopClusterId) =>
-            void loadRoute(selectedDay, selectedMonths, routeClusterId, topStops, routeClusterLimit, stopClusterId)
+          recentlyEditedStopId={recentlyEditedStopId}
+          loadState={loadState}
+          errorMessage={errorMessage}
+          persistentRouteErrorMessage={persistentRouteErrorMessage}
+          isPersistentRoutesUpdating={isPersistentRoutesUpdating}
+          onDayChange={(day) => void loadDay(day)}
+          onMonthsChange={(monthValues) => {
+            if (selectedDay) {
+              void loadDay(selectedDay, monthValues);
+            }
+          }}
+          onRouteClusterChange={(routeClusterId) =>
+            void loadRoute(selectedDay, selectedMonths, routeClusterId, topStops, routeClusterLimit)
           }
+          onApplyDisplayLimits={(values) => {
+            setTopStops(values.topStops);
+            setRouteClusterLimit(values.routeClusterLimit);
+            if (selectedDay) {
+              void loadDay(
+                selectedDay,
+                selectedMonths,
+                selectedRouteClusterId,
+                values.topStops,
+                values.routeClusterLimit
+              );
+            }
+          }}
+          onAddPersistentRouteCluster={addPersistentRouteCluster}
+          onRemovePersistentRouteCluster={removePersistentRouteCluster}
           onStopSelect={setSelectedStopId}
+          onArrivalTimeChange={updateStopArrivalTime}
+          hiddenStopIds={hiddenStopIds}
+          onStopVisibilityToggle={toggleStopVisibility}
         />
-      </section>
-    </main>
+        <section className="relative min-h-[52vh] flex-1 border-t border-line/80 bg-slate-100 md:min-h-0 md:border-l md:border-t-0">
+          <RouteMap
+            routeSummaries={routeSummariesForMap}
+            routeDetail={routeDetailForMap}
+            selectedStopId={selectedStopId}
+            isLoading={loadState === "loading" || isPending}
+            onRouteSelect={(routeClusterId, stopClusterId) =>
+              void loadRoute(selectedDay, selectedMonths, routeClusterId, topStops, routeClusterLimit, stopClusterId)
+            }
+            onStopSelect={setSelectedStopId}
+          />
+        </section>
+      </main>
+      <PrintRouteSheet routeDetail={routeDetailForMap} arrivalTimes={arrivalTimes} />
+    </>
   );
 }
 
 function buildRouteVisibilityKey(routeDetail: Pick<RouteDetailDto, "day" | "routeClusterId">) {
   return `${routeDetail.day}:${routeDetail.routeClusterId}`;
+}
+
+function PrintRouteSheet({
+  routeDetail,
+  arrivalTimes
+}: {
+  routeDetail: RouteDetailDto | null;
+  arrivalTimes: Record<string, string>;
+}) {
+  const stops = routeDetail?.stops ?? [];
+  const routeName = routeDetail ? removeRouteId(routeDetail.routeClusterName) : "";
+
+  return (
+    <section className="print-route-sheet" aria-hidden="true">
+      {routeDetail ? (
+        <>
+          <header className="print-route-sheet__header">
+            <div>
+              <p className="print-route-sheet__eyebrow">Master Route Address List</p>
+              <h1>{buildPrintRouteTitle(routeDetail.day, routeName)}</h1>
+            </div>
+            <dl className="print-route-sheet__summary" aria-label="Route summary">
+              <div>
+                <dt>Day</dt>
+                <dd>{routeDetail.day}</dd>
+              </div>
+              <div>
+                <dt>Route</dt>
+                <dd>{routeName}</dd>
+              </div>
+              <div>
+                <dt>Visible Stops</dt>
+                <dd>{stops.length}</dd>
+              </div>
+            </dl>
+          </header>
+
+          {stops.length > 0 ? (
+            <ol className="print-route-sheet__stops">
+              {stops.map((stop) => (
+                <li key={stop.stopClusterId} className="print-route-sheet__stop">
+                  <span className="print-route-sheet__order">{stop.visitOrder}</span>
+                  <div className="print-route-sheet__stop-body">
+                    <div className="print-route-sheet__address">{stop.address}</div>
+                    <div className="print-route-sheet__arrival-time">
+                      Arrival time: {formatPrintArrivalTime(arrivalTimes[String(stop.stopClusterId)])}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="print-route-sheet__empty">No visible addresses are available for this route.</p>
+          )}
+        </>
+      ) : (
+        <p className="print-route-sheet__empty">No route is selected.</p>
+      )}
+    </section>
+  );
+}
+
+function removeRouteId(routeClusterName: string) {
+  return routeClusterName.replace(/\s+ID:\s*\d+\s*$/i, "").trim();
+}
+
+function buildPrintRouteTitle(day: string, routeName: string) {
+  return `Addresses in order - ${day} / ${routeName}`;
+}
+
+function formatPrintArrivalTime(time: string | undefined) {
+  if (!time) {
+    return "Not set";
+  }
+
+  const [hourString, minuteString] = time.split(":");
+  const hour = Number(hourString);
+  const minute = Number(minuteString);
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return time;
+  }
+
+  const hour12 = hour % 12 || 12;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
 }

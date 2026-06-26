@@ -94,3 +94,152 @@ body {
 .route-pin--mid {
   background: var(--pin-color, linear-gradient(180deg, #5b6c7d 0%, #334155 100%));
 }
+
+.print-route-sheet {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 0.45in;
+  }
+
+  html,
+  body {
+    height: auto;
+  }
+
+  body {
+    background: #fff !important;
+    color: #111827;
+  }
+
+  .screen-route-app {
+    display: none !important;
+  }
+
+  a[href]::after {
+    content: "" !important;
+  }
+
+  .print-route-sheet {
+    display: block;
+    width: 100%;
+    color: #111827;
+    font-size: 10.5pt;
+    line-height: 1.35;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-route-sheet__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.35in;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 0.18in;
+  }
+
+  .print-route-sheet__eyebrow {
+    margin: 0 0 0.04in;
+    color: #475569;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .print-route-sheet h1 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 17pt;
+    line-height: 1.15;
+  }
+
+  .print-route-sheet__summary {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    gap: 0.14in;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .print-route-sheet__summary div {
+    border-left: 1px solid #cbd5e1;
+    padding-left: 0.12in;
+  }
+
+  .print-route-sheet__summary dt {
+    margin: 0 0 0.03in;
+    color: #64748b;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .print-route-sheet__summary dd {
+    margin: 0;
+    color: #0f172a;
+    font-size: 10pt;
+    font-weight: 700;
+  }
+
+  .print-route-sheet__stops {
+    column-count: 2;
+    column-gap: 0.16in;
+    margin: 0.2in 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .print-route-sheet__stop {
+    display: grid;
+    grid-template-columns: 0.28in minmax(0, 1fr);
+    gap: 0.08in;
+    min-width: 0;
+    margin-bottom: 0.08in;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-route-sheet__order {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.24in;
+    height: 0.24in;
+    border: 1px solid #94a3b8;
+    border-radius: 999px;
+    color: #0f172a;
+    font-size: 8.5pt;
+    font-weight: 800;
+  }
+
+  .print-route-sheet__stop-body {
+    min-width: 0;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 0.07in;
+  }
+
+  .print-route-sheet__address {
+    color: #0f172a;
+    font-size: 10.5pt;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .print-route-sheet__arrival-time {
+    margin-top: 0.03in;
+    color: #0f172a;
+    font-size: 10pt;
+    font-weight: 700;
+  }
+
+  .print-route-sheet__empty {
+    margin: 0.3in 0 0;
+    color: #475569;
+    font-size: 11pt;
+  }
+}
