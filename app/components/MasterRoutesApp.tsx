@@ -8,6 +8,7 @@ import type {
   PersistentRouteClusterDto,
   RouteClusterOption,
   RouteDetailDto,
+  RouteNameDto,
   RouteSummaryDto
 } from "@/types/routes";
 import { Sidebar } from "@/app/components/Sidebar";
@@ -48,10 +49,43 @@ export function MasterRoutesApp() {
   const [persistentRouteErrorMessage, setPersistentRouteErrorMessage] = useState<string>("");
   const [isPersistentRoutesUpdating, setIsPersistentRoutesUpdating] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
+  const [routeNamesById, setRouteNamesById] = useState<Map<number, RouteNameDto>>(new Map());
 
   useEffect(() => {
     void initialize();
+    void refreshRouteNames();
   }, []);
+
+  async function refreshRouteNames() {
+    try {
+      const names = await fetchJson<RouteNameDto[]>(
+        "/api/route-names",
+        { cache: "no-store" },
+        "Unable to load route names."
+      );
+      setRouteNamesById(new Map(names.map((entry) => [entry.routeClusterId, entry])));
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function saveRouteName(routeClusterId: number, name: string, updatedBy: string) {
+    const updated = await fetchJson<RouteNameDto>(
+      "/api/route-names",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routeClusterId, name, updatedBy })
+      },
+      "Unable to save route name."
+    );
+    setRouteNamesById((current) => {
+      const next = new Map(current);
+      next.set(updated.routeClusterId, updated);
+      return next;
+    });
+    return updated;
+  }
 
   async function initialize() {
     try {
@@ -377,6 +411,7 @@ export function MasterRoutesApp() {
           months={months}
           selectedMonths={selectedMonths}
           routeClusters={routeClusters}
+          routeNamesById={routeNamesById}
           persistentRouteClusterIds={persistentRouteClusterIds}
           selectedDay={selectedDay}
           selectedRouteClusterId={selectedRouteClusterId}
@@ -388,6 +423,7 @@ export function MasterRoutesApp() {
           errorMessage={errorMessage}
           persistentRouteErrorMessage={persistentRouteErrorMessage}
           isPersistentRoutesUpdating={isPersistentRoutesUpdating}
+          onSaveRouteName={saveRouteName}
           onDayChange={(day) => void loadDay(day)}
           onMonthsChange={(monthValues) => {
             if (selectedDay) {

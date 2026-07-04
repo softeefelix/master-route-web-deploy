@@ -77,3 +77,14 @@ model StopScore {
   @@index([dow, routeClusterId])
   @@map("stop_scores")
 }
+
+model RouteName {
+  routeClusterId Int      @id @map("route_cluster_id")
+  name           String   @unique
+  status         String   @default("established")
+  aliases        String[] @default([])
+  updatedBy      String   @default("proposal-seed") @map("updated_by")
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("route_names")
+}

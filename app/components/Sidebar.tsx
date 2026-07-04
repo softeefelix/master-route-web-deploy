@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
-import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto } from "@/types/routes";
+import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteNameDto } from "@/types/routes";
 
 type SidebarProps = {
   topStops: number;
@@ -11,6 +11,7 @@ type SidebarProps = {
   months: MonthOption[];
   selectedMonths: number[];
   routeClusters: RouteClusterOption[];
+  routeNamesById: Map<number, RouteNameDto>;
   persistentRouteClusterIds: number[];
   selectedDay: string;
   selectedRouteClusterId: number | null;
@@ -22,6 +23,7 @@ type SidebarProps = {
   errorMessage: string;
   persistentRouteErrorMessage: string;
   isPersistentRoutesUpdating: boolean;
+  onSaveRouteName: (routeClusterId: number, name: string, updatedBy: string) => Promise<RouteNameDto>;
   onDayChange: (day: string) => void;
   onMonthsChange: (months: number[]) => void;
   onRouteClusterChange: (routeClusterId: number) => void;
@@ -41,6 +43,7 @@ export function Sidebar({
   months,
   selectedMonths,
   routeClusters,
+  routeNamesById,
   persistentRouteClusterIds,
   selectedDay,
   selectedRouteClusterId,
@@ -52,6 +55,7 @@ export function Sidebar({
   errorMessage,
   persistentRouteErrorMessage,
   isPersistentRoutesUpdating,
+  onSaveRouteName,
   onDayChange,
   onMonthsChange,
   onRouteClusterChange,
@@ -212,7 +216,7 @@ export function Sidebar({
                 >
                   {routeClusters.map((cluster) => (
                     <option key={cluster.id} value={cluster.id}>
-                      {cluster.label}
+                      {formatRouteClusterOptionLabel(cluster, routeNamesById.get(cluster.id)?.name)}
                     </option>
                   ))}
                 </select>
@@ -336,6 +340,11 @@ export function Sidebar({
           </h1>
           {routeDetail ? (
             <div className="mt-3 space-y-2">
+              <RouteNameEditor
+                routeClusterId={routeDetail.routeClusterId}
+                currentName={routeNamesById.get(routeDetail.routeClusterId)?.name ?? null}
+                onSave={onSaveRouteName}
+              />
               <div className="rounded-2xl border border-accent/20 bg-accent/10 px-3 py-3">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
                   Daily Average Sale
@@ -484,5 +493,147 @@ export function Sidebar({
         </ol>
       </div>
     </aside>
+  );
+}
+
+function formatRouteClusterOptionLabel(cluster: RouteClusterOption, routeName: string | undefined) {
+  if (!routeName) {
+    return cluster.label;
+  }
+
+  return `${routeName} (#${cluster.id})`;
+}
+
+function RouteNameEditor({
+  routeClusterId,
+  currentName,
+  onSave
+}: {
+  routeClusterId: number;
+  currentName: string | null;
+  onSave: (routeClusterId: number, name: string, updatedBy: string) => Promise<RouteNameDto>;
+}) {
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [draftName, setDraftName] = useState<string>(currentName ?? "");
+  const [draftEditor, setDraftEditor] = useState<string>("andrew");
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  useEffect(() => {
+    setDraftName(currentName ?? "");
+    setIsEditing(false);
+    setFeedback(null);
+  }, [routeClusterId, currentName]);
+
+  const trimmedDraftName = draftName.trim();
+  const trimmedDraftEditor = draftEditor.trim();
+  const canSave =
+    trimmedDraftName.length > 0 &&
+    trimmedDraftName.length <= 64 &&
+    !trimmedDraftName.includes(",") &&
+    trimmedDraftEditor.length > 0 &&
+    trimmedDraftEditor.length <= 32 &&
+    !isSaving;
+
+  async function handleSave() {
+    if (!canSave) {
+      return;
+    }
+
+    setIsSaving(true);
+    setFeedback(null);
+    try {
+      await onSave(routeClusterId, trimmedDraftName, trimmedDraftEditor);
+      setFeedback({ type: "success", message: "Route name saved." });
+      setIsEditing(false);
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to save route name."
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  if (!isEditing) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-medium text-ink">
+          {currentName ? `${currentName} (#${routeClusterId})` : `#${routeClusterId}`}
+        </span>
+        <button
+          type="button"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-white text-xs text-slate-500 transition hover:border-accent hover:text-accent"
+          onClick={() => {
+            setDraftName(currentName ?? "");
+            setIsEditing(true);
+            setFeedback(null);
+          }}
+          aria-label={`Edit name for route cluster ${routeClusterId}`}
+          title="Edit route name"
+        >
+          ✏️
+        </button>
+        {feedback ? (
+          <span className={feedback.type === "success" ? "text-xs text-emerald-600" : "text-xs text-red-600"}>
+            {feedback.message}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-line bg-slate-50/90 p-3">
+      <div className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Route Name
+          <input
+            type="text"
+            maxLength={64}
+            className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            placeholder="e.g. SanMateo-Ryder"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Editor Name
+          <input
+            type="text"
+            maxLength={32}
+            className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+            value={draftEditor}
+            onChange={(event) => setDraftEditor(event.target.value)}
+          />
+        </label>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
+            disabled={!canSave}
+            onClick={() => void handleSave()}
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            onClick={() => {
+              setIsEditing(false);
+              setFeedback(null);
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+        {feedback && feedback.type === "error" ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {feedback.message}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }

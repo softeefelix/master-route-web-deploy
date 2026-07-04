@@ -68,3 +68,12 @@ export type RouteDetailDto = {
   totalSalesAmount: number;
   totalAverageSaleAmount: number;
 };
+
+export type RouteNameDto = {
+  routeClusterId: number;
+  name: string;
+  status: string;
+  aliases: string[];
+  updatedBy: string;
+  updatedAt: string;
+};
