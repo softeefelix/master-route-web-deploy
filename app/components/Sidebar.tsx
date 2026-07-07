@@ -347,10 +347,10 @@ export function Sidebar({
               />
               <div className="rounded-2xl border border-accent/20 bg-accent/10 px-3 py-3">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
-                  Daily Average Sale
+                  Expected Daily Revenue
                 </div>
                 <div className="mt-1 text-lg font-bold text-ink">
-                  {formatCurrency(routeDetail.totalAverageSaleAmount)}
+                  {formatCurrency(routeDetail.expectedDailyRevenue)}
                 </div>
                 <div className="mt-2 text-xs text-slate-600">
                   <span className="font-semibold text-ink">Total past sales:</span> {formatCurrency(routeDetail.totalSalesAmount)}

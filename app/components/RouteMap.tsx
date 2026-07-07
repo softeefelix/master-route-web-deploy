@@ -190,7 +190,8 @@ export function RouteMap({
               <div>Past visits: {stop.salesMatchesWithin50m ?? "N/A"}</div>
               <div>Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)}</div>
               {stop.pastArrivalTime ? <div>Past arrival time: {stop.pastArrivalTime}</div> : null}
-              <div>Daily average sale: {formatCurrency(stop.averageSale)}</div>
+              <div>Expected $ per visit: {formatCurrency(stop.expectedPerVisit)}</div>
+              <div>Average sale per visit: {formatCurrency(stop.averageSale)}</div>
               <div>Stop score: {formatScore(stop.predictedSalesPerDay)}</div>
               <div>Address: {stop.address}</div>
             </div>

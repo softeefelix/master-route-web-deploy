@@ -35,6 +35,7 @@ type SeasonalStop = {
   salesNorm: number;
   visitsNorm: number;
   score: number;
+  expectedPerVisit: number;
 };
 
 type SeasonalRouteCluster = {
@@ -43,6 +44,7 @@ type SeasonalRouteCluster = {
   centroidLat: number;
   centroidLong: number;
   totalSalesAmount: number;
+  expectedDailyRevenue: number;
   stops: SeasonalStop[];
 };
 
@@ -54,6 +56,7 @@ type OrderedRouteResult = {
   day: string;
   centroid: [number, number];
   color: string;
+  expectedDailyRevenue: number;
   orderedStops: OrderedStop[];
 };
 
@@ -197,6 +200,7 @@ async function getSeasonalRouteClustersForDay(
   }
 
   const seasonalStopRows = await getSeasonalStopRows(activePipelineRunId, day, months);
+  const pooledMeanPerVisit = await getPooledMeanPerVisit(activePipelineRunId, months);
   const seasonalRowsByRoute = new Map<number, SeasonalStopRow[]>();
   for (const row of seasonalStopRows) {
     const bucket = seasonalRowsByRoute.get(row.routeClusterId) ?? [];
@@ -205,7 +209,9 @@ async function getSeasonalRouteClustersForDay(
   }
 
   const rankedClusters = routeClusters
-    .map((routeCluster) => toSeasonalRouteCluster(routeCluster, seasonalRowsByRoute.get(routeCluster.id) ?? []))
+    .map((routeCluster) =>
+      toSeasonalRouteCluster(routeCluster, seasonalRowsByRoute.get(routeCluster.id) ?? [], pooledMeanPerVisit)
+    )
     .filter((cluster): cluster is SeasonalRouteCluster => cluster !== null)
     .sort((left, right) => {
       if (right.totalSalesAmount !== left.totalSalesAmount) {
@@ -283,9 +289,41 @@ async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, mon
   `);
 }
 
+// Pooled mean $/visit across ALL stops (same day/month scope as the stop rows).
+// A "visit" = one (stop, date, truck) — a stop-visit usually contains multiple
+// line-item sales, so this lands ~$35-45, not the ~$9 raw per-sale average.
+// Used as the shrinkage prior for per-stop expected-$-per-visit.
+async function getPooledMeanPerVisit(activePipelineRunId: bigint, months: number[]): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ mu: number | null }>>(Prisma.sql`
+    WITH visits AS (
+      SELECT SUM(ss.amount) AS visit_amount
+      FROM sale_stops ss
+      WHERE ss.pipeline_run_id = ${activePipelineRunId}
+        AND EXTRACT(MONTH FROM ss.created_at)::int IN (${Prisma.join(months)})
+      GROUP BY ss.stop_cluster_id, ss.created_at::date, ss.truck_number
+    )
+    SELECT (SUM(visit_amount) / NULLIF(COUNT(*), 0))::double precision AS mu
+    FROM visits
+  `);
+
+  return rows[0]?.mu ?? 0;
+}
+
+// Shrinkage prior weight for expected-$-per-visit (Bayesian shrinkage toward the
+// pooled mean): expected = (total_sales + K*mu) / (visits + K). Validated against
+// the live DB 2026-07-06 (see research/andrew_interview + ROUTE_REVENUE_METRICS.md):
+// keeps low-visit stops from dominating on noise.
+const SHRINKAGE_PRIOR_VISITS = 3;
+// Stops counted toward a route's expected daily revenue. Matches observed
+// ~25-33 stops actually run per truck-day. Selected by VISIT FREQUENCY (stops
+// historically on the route), NOT by $ metric — selecting by the same metric
+// being summed cherry-picks noisy overperformers and inflates totals ~2x.
+const EXPECTED_REVENUE_STOP_COUNT = 30;
+
 function toSeasonalRouteCluster(
   routeCluster: RouteClusterRecord,
-  stopRows: SeasonalStopRow[]
+  stopRows: SeasonalStopRow[],
+  pooledMeanPerVisit: number
 ): SeasonalRouteCluster | null {
   if (stopRows.length === 0) {
     return null;
@@ -303,8 +341,17 @@ function toSeasonalRouteCluster(
     pastArrivalTime: buildPastArrivalTime(row),
     salesNorm: maxSales > 0 ? row.totalSales / maxSales : 0,
     visitsNorm: maxVisits > 0 ? row.visits / maxVisits : 0,
-    score: (maxSales > 0 ? (row.totalSales / maxSales) * 1000 : 0) + (maxVisits > 0 ? row.visits / maxVisits : 0)
+    score: (maxSales > 0 ? (row.totalSales / maxSales) * 1000 : 0) + (maxVisits > 0 ? row.visits / maxVisits : 0),
+    expectedPerVisit:
+      (row.totalSales + SHRINKAGE_PRIOR_VISITS * pooledMeanPerVisit) /
+      (row.visits + SHRINKAGE_PRIOR_VISITS)
   }));
+
+  const expectedDailyRevenue = stops
+    .slice()
+    .sort((left, right) => right.visits - left.visits)
+    .slice(0, EXPECTED_REVENUE_STOP_COUNT)
+    .reduce((sum, stop) => sum + stop.expectedPerVisit, 0);
 
   return {
     id: routeCluster.id,
@@ -312,6 +359,7 @@ function toSeasonalRouteCluster(
     centroidLat: routeCluster.centroidLat,
     centroidLong: routeCluster.centroidLong,
     totalSalesAmount: stops.reduce((sum, stop) => sum + stop.totalSales, 0),
+    expectedDailyRevenue,
     stops
   };
 }
@@ -337,6 +385,7 @@ function toOrderedRoute(
     day: cluster.dow,
     centroid: [cluster.centroidLat, cluster.centroidLong],
     color: colorMap.get(cluster.id) ?? "#1f77b4",
+    expectedDailyRevenue: cluster.expectedDailyRevenue,
     orderedStops: orderStopsByDistance(candidateStops, [cluster.centroidLat, cluster.centroidLong])
   };
 }
@@ -389,10 +438,7 @@ function toRouteSummary(route: OrderedRouteResult): RouteSummaryDto {
     stopCount: route.orderedStops.length,
     predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + stop.score, 0),
     totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
-    totalAverageSaleAmount: route.orderedStops.reduce(
-      (sum, stop) => sum + (stop.visits > 0 ? stop.totalSales / stop.visits : 0),
-      0
-    ),
+    expectedDailyRevenue: route.expectedDailyRevenue,
     stops: route.orderedStops.map((stop) => ({
       stopClusterId: stop.stopClusterId,
       lat: stop.lat,
@@ -418,10 +464,7 @@ function toRouteDetail(
     polyline,
     predictedSalesTotal: route.orderedStops.reduce((sum, stop) => sum + stop.score, 0),
     totalSalesAmount: route.orderedStops.reduce((sum, stop) => sum + stop.totalSales, 0),
-    totalAverageSaleAmount: route.orderedStops.reduce(
-      (sum, stop) => sum + (stop.visits > 0 ? stop.totalSales / stop.visits : 0),
-      0
-    ),
+    expectedDailyRevenue: route.expectedDailyRevenue,
     stops: route.orderedStops.map((stop, index) => ({
       stopClusterId: stop.stopClusterId,
       visitOrder: index + 1,
@@ -433,6 +476,7 @@ function toRouteDetail(
       pastSalesPerDaySameDow: stop.totalSales,
       pastArrivalTime: stop.pastArrivalTime,
       averageSale: stop.visits > 0 ? stop.totalSales / stop.visits : null,
+      expectedPerVisit: stop.expectedPerVisit,
       otherDowAvgSalesPerDay: stop.visitsNorm,
       predictedSalesPerDay: stop.score,
       salesMatchesWithin50m: stop.visits

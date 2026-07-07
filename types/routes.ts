@@ -29,6 +29,8 @@ export type RouteStopDto = {
   pastSalesPerDaySameDow: number | null;
   pastArrivalTime: string | null;
   averageSale: number | null;
+  /** Shrunk expected $ per visit: (totalSales + K*mu) / (visits + K). */
+  expectedPerVisit: number | null;
   otherDowAvgSalesPerDay: number | null;
   predictedSalesPerDay: number | null;
   salesMatchesWithin50m: number | null;
@@ -51,7 +53,8 @@ export type RouteSummaryDto = {
   stopCount: number;
   predictedSalesTotal: number;
   totalSalesAmount: number;
-  totalAverageSaleAmount: number;
+  /** Realistic expected $ for one day on this route: sum of shrunk $/visit over the top stops by visit frequency. */
+  expectedDailyRevenue: number;
   stops: RouteSummaryStopDto[];
 };
 
@@ -66,7 +69,8 @@ export type RouteDetailDto = {
   stops: RouteStopDto[];
   predictedSalesTotal: number;
   totalSalesAmount: number;
-  totalAverageSaleAmount: number;
+  /** Realistic expected $ for one day on this route: sum of shrunk $/visit over the top stops by visit frequency. */
+  expectedDailyRevenue: number;
 };
 
 export type RouteNameDto = {
