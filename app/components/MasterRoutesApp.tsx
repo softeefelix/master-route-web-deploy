@@ -22,6 +22,9 @@ import { fetchJson } from "@/lib/api";
 import { DEFAULT_ROUTE_CLUSTER_LIMIT, DEFAULT_TOP_STOPS } from "@/lib/constants";
 import { calculateBounds } from "@/lib/utils";
 
+export type DateRange = { from: string; to: string };
+
+
 const RouteMap = dynamic(() => import("@/app/components/RouteMap").then((mod) => mod.RouteMap), {
   ssr: false
 });
@@ -34,6 +37,7 @@ export function MasterRoutesApp() {
   const [days, setDays] = useState<DayOption[]>([]);
   const [months, setMonths] = useState<MonthOption[]>([]);
   const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+  const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [routeClusters, setRouteClusters] = useState<RouteClusterOption[]>([]);
   const [persistentRouteClusterIds, setPersistentRouteClusterIds] = useState<number[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>("");
@@ -126,16 +130,25 @@ export function MasterRoutesApp() {
     return monthValues.map((month) => `month=${encodeURIComponent(String(month))}`).join("&");
   }
 
+  function buildFilterQuery(monthValues: number[], range: DateRange | null) {
+    if (range) {
+      return `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
+    }
+    return buildMonthsQuery(monthValues);
+  }
+
   async function loadDay(
     day: string,
     monthValues = selectedMonths,
     preferredRouteClusterId?: number | null,
     nextTopStops = topStops,
-    nextRouteClusterLimit = routeClusterLimit
+    nextRouteClusterLimit = routeClusterLimit,
+    nextDateRange: DateRange | null = dateRange
   ) {
-    if (!day || monthValues.length === 0) {
+    if (!day || (monthValues.length === 0 && !nextDateRange)) {
       setSelectedDay(day);
       setSelectedMonths(monthValues);
+      setDateRange(nextDateRange);
       setRouteClusters([]);
       setRouteSummaries([]);
       setRouteDetail(null);
@@ -151,20 +164,21 @@ export function MasterRoutesApp() {
       setLoadState("loading");
       setSelectedDay(day);
       setSelectedMonths(monthValues);
+      setDateRange(nextDateRange);
       setSelectedStopId(null);
       setRecentlyEditedStopId(null);
     });
 
     try {
-      const monthsQuery = buildMonthsQuery(monthValues);
+      const filterQuery = buildFilterQuery(monthValues, nextDateRange);
       const [clusters, summaries] = await Promise.all([
         fetchJson<RouteClusterOption[]>(
-          `/api/route-clusters?day=${encodeURIComponent(day)}&routeClusterLimit=${nextRouteClusterLimit}&${monthsQuery}`,
+          `/api/route-clusters?day=${encodeURIComponent(day)}&routeClusterLimit=${nextRouteClusterLimit}&${filterQuery}`,
           { cache: "no-store" },
           "Unable to load route-cluster data for the selected day."
         ),
         fetchJson<RouteSummaryDto[]>(
-          `/api/routes/summary?day=${encodeURIComponent(day)}&topStops=${nextTopStops}&routeClusterLimit=${nextRouteClusterLimit}&${monthsQuery}`,
+          `/api/routes/summary?day=${encodeURIComponent(day)}&topStops=${nextTopStops}&routeClusterLimit=${nextRouteClusterLimit}&${filterQuery}`,
           { cache: "no-store" },
           "Unable to load route-cluster data for the selected day."
         )
@@ -187,7 +201,7 @@ export function MasterRoutesApp() {
         return;
       }
 
-      await loadRoute(day, monthValues, nextSelectedRouteClusterId, nextTopStops, nextRouteClusterLimit);
+      await loadRoute(day, monthValues, nextSelectedRouteClusterId, nextTopStops, nextRouteClusterLimit, undefined, nextDateRange);
     } catch (error) {
       console.error(error);
       setLoadState("error");
@@ -201,20 +215,22 @@ export function MasterRoutesApp() {
     routeClusterId: number,
     nextTopStops = topStops,
     nextRouteClusterLimit = routeClusterLimit,
-    preferredStopId?: number | null
+    preferredStopId?: number | null,
+    nextDateRange: DateRange | null = dateRange
   ) {
     startTransition(() => {
       setLoadState("loading");
       setSelectedRouteClusterId(routeClusterId);
       setSelectedMonths(monthValues);
+      setDateRange(nextDateRange);
       setSelectedStopId(preferredStopId ?? null);
       setRecentlyEditedStopId(null);
     });
 
     try {
-      const monthsQuery = buildMonthsQuery(monthValues);
+      const filterQuery = buildFilterQuery(monthValues, nextDateRange);
       const detail = await fetchJson<RouteDetailDto>(
-        `/api/routes?day=${encodeURIComponent(day)}&routeClusterId=${routeClusterId}&topStops=${nextTopStops}&routeClusterLimit=${nextRouteClusterLimit}&${monthsQuery}`,
+        `/api/routes?day=${encodeURIComponent(day)}&routeClusterId=${routeClusterId}&topStops=${nextTopStops}&routeClusterLimit=${nextRouteClusterLimit}&${filterQuery}`,
         { cache: "no-store" },
         "Unable to load the selected route cluster."
       );
@@ -410,6 +426,7 @@ export function MasterRoutesApp() {
           days={days}
           months={months}
           selectedMonths={selectedMonths}
+          dateRange={dateRange}
           routeClusters={routeClusters}
           routeNamesById={routeNamesById}
           persistentRouteClusterIds={persistentRouteClusterIds}
@@ -427,11 +444,21 @@ export function MasterRoutesApp() {
           onDayChange={(day) => void loadDay(day)}
           onMonthsChange={(monthValues) => {
             if (selectedDay) {
-              void loadDay(selectedDay, monthValues);
+              void loadDay(selectedDay, monthValues, undefined, topStops, routeClusterLimit, null);
+            }
+          }}
+          onDateRangeApply={(range) => {
+            if (selectedDay) {
+              void loadDay(selectedDay, selectedMonths, undefined, topStops, routeClusterLimit, range);
+            }
+          }}
+          onDateRangeClear={() => {
+            if (selectedDay) {
+              void loadDay(selectedDay, selectedMonths, undefined, topStops, routeClusterLimit, null);
             }
           }}
           onRouteClusterChange={(routeClusterId) =>
-            void loadRoute(selectedDay, selectedMonths, routeClusterId, topStops, routeClusterLimit)
+            void loadRoute(selectedDay, selectedMonths, routeClusterId, topStops, routeClusterLimit, undefined, dateRange)
           }
           onApplyDisplayLimits={(values) => {
             setTopStops(values.topStops);
@@ -442,7 +469,8 @@ export function MasterRoutesApp() {
                 selectedMonths,
                 selectedRouteClusterId,
                 values.topStops,
-                values.routeClusterLimit
+                values.routeClusterLimit,
+                dateRange
               );
             }
           }}

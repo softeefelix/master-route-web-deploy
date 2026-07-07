@@ -3,6 +3,7 @@ import { DEFAULT_ROUTE_CLUSTER_LIMIT } from "@/lib/constants";
 import { getPersistentRouteClusterIds } from "@/lib/persistent-route-clusters";
 import { prisma } from "@/lib/prisma";
 import { buildDayRouteColorMap, buildRouteTitle, calculateBounds, sortDays } from "@/lib/utils";
+import type { DateRange } from "@/lib/validators";
 import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteSummaryDto } from "@/types/routes";
 
 type RouteClusterRecord = {
@@ -126,9 +127,10 @@ export async function getMonths(): Promise<MonthOption[]> {
 export async function getRouteClusterOptions(
   day: string,
   months: number[],
-  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT
+  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT,
+  dateRange?: DateRange
 ): Promise<RouteClusterOption[]> {
-  const clusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit);
+  const clusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit, dateRange);
   const routeNameMap = buildRouteClusterNameMap(clusters);
 
   return clusters
@@ -144,9 +146,10 @@ export async function getRouteSummaries(
   day: string,
   months: number[],
   topStops: number,
-  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT
+  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT,
+  dateRange?: DateRange
 ): Promise<RouteSummaryDto[]> {
-  const clusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit);
+  const clusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit, dateRange);
   const colorMap = buildDayRouteColorMap(clusters.map((cluster) => cluster.id));
   const routeNameMap = buildRouteClusterNameMap(clusters);
 
@@ -161,9 +164,10 @@ export async function getRouteDetail(
   months: number[],
   routeClusterId: number,
   topStops: number,
-  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT
+  routeClusterLimit = DEFAULT_ROUTE_CLUSTER_LIMIT,
+  dateRange?: DateRange
 ): Promise<RouteDetailDto | null> {
-  const dayClusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit);
+  const dayClusters = await getSeasonalRouteClustersForDay(day, months, routeClusterLimit, dateRange);
   const colorMap = buildDayRouteColorMap(dayClusters.map((cluster) => cluster.id));
   const routeNameMap = buildRouteClusterNameMap(dayClusters);
   const cluster = dayClusters.find((item) => item.id === routeClusterId) ?? null;
@@ -176,12 +180,77 @@ export async function getRouteDetail(
   return toRouteDetail(ordered, colorMap, routeNameMap);
 }
 
+// --- Module-level memo cache for getSeasonalRouteClustersForDay results ---
+// Keyed by (activePipelineRunId, day, sorted months, from, to, routeClusterLimit).
+// TTL 120s (data updates ~daily via pipeline, so slight staleness is fine).
+// Hand-rolled Map with insertion-order eviction — no external deps.
+const SEASONAL_CLUSTERS_CACHE_TTL_MS = 120_000;
+const SEASONAL_CLUSTERS_CACHE_MAX_ENTRIES = 50;
+
+type SeasonalClustersCacheEntry = {
+  value: SeasonalRouteCluster[];
+  expiresAt: number;
+};
+
+const seasonalClustersCache = new Map<string, SeasonalClustersCacheEntry>();
+
+function buildSeasonalClustersCacheKey(
+  activePipelineRunId: bigint,
+  day: string,
+  months: number[],
+  routeClusterLimit: number,
+  dateRange: DateRange | undefined
+): string {
+  const sortedMonths = [...months].sort((left, right) => left - right);
+  return JSON.stringify({
+    pipelineRunId: activePipelineRunId.toString(),
+    day,
+    months: sortedMonths,
+    from: dateRange?.from ?? null,
+    to: dateRange?.to ?? null,
+    routeClusterLimit
+  });
+}
+
+function getFromSeasonalClustersCache(key: string): SeasonalRouteCluster[] | undefined {
+  const entry = seasonalClustersCache.get(key);
+  if (!entry) {
+    return undefined;
+  }
+
+  if (Date.now() >= entry.expiresAt) {
+    seasonalClustersCache.delete(key);
+    return undefined;
+  }
+
+  return entry.value;
+}
+
+function setInSeasonalClustersCache(key: string, value: SeasonalRouteCluster[]): void {
+  // Evict the oldest entry (Map preserves insertion order) if at capacity.
+  if (seasonalClustersCache.size >= SEASONAL_CLUSTERS_CACHE_MAX_ENTRIES && !seasonalClustersCache.has(key)) {
+    const oldestKey = seasonalClustersCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      seasonalClustersCache.delete(oldestKey);
+    }
+  }
+
+  seasonalClustersCache.set(key, { value, expiresAt: Date.now() + SEASONAL_CLUSTERS_CACHE_TTL_MS });
+}
+
 async function getSeasonalRouteClustersForDay(
   day: string,
   months: number[],
-  routeClusterLimit: number
+  routeClusterLimit: number,
+  dateRange?: DateRange
 ) {
   const activePipelineRunId = await getActivePipelineRunId();
+  const cacheKey = buildSeasonalClustersCacheKey(activePipelineRunId, day, months, routeClusterLimit, dateRange);
+  const cached = getFromSeasonalClustersCache(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const routeClusters = await prisma.routeCluster.findMany({
     where: {
       pipelineRunId: activePipelineRunId,
@@ -196,11 +265,12 @@ async function getSeasonalRouteClustersForDay(
   });
 
   if (routeClusters.length === 0) {
+    setInSeasonalClustersCache(cacheKey, []);
     return [];
   }
 
-  const seasonalStopRows = await getSeasonalStopRows(activePipelineRunId, day, months);
-  const pooledMeanPerVisit = await getPooledMeanPerVisit(activePipelineRunId, months);
+  const seasonalStopRows = await getSeasonalStopRows(activePipelineRunId, day, months, dateRange);
+  const pooledMeanPerVisit = await getPooledMeanPerVisit(activePipelineRunId, months, dateRange);
   const seasonalRowsByRoute = new Map<number, SeasonalStopRow[]>();
   for (const row of seasonalStopRows) {
     const bucket = seasonalRowsByRoute.get(row.routeClusterId) ?? [];
@@ -222,7 +292,9 @@ async function getSeasonalRouteClustersForDay(
     });
 
   const persistentRouteClusterIds = new Set(await getPersistentRouteClusterIds());
-  return selectVisibleRouteClusters(rankedClusters, routeClusterLimit, persistentRouteClusterIds);
+  const visibleClusters = selectVisibleRouteClusters(rankedClusters, routeClusterLimit, persistentRouteClusterIds);
+  setInSeasonalClustersCache(cacheKey, visibleClusters);
+  return visibleClusters;
 }
 
 function selectVisibleRouteClusters(
@@ -253,7 +325,16 @@ function selectVisibleRouteClusters(
   return rankedClusters.filter((cluster) => selectedRouteClusterIds.has(cluster.id));
 }
 
-async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, months: number[]) {
+async function getSeasonalStopRows(
+  activePipelineRunId: bigint,
+  day: string,
+  months: number[],
+  dateRange?: DateRange
+) {
+  const dateFilter = dateRange
+    ? Prisma.sql`ss.created_at >= ${dateRange.from}::date AND ss.created_at < (${dateRange.to}::date + interval '1 day')`
+    : Prisma.sql`EXTRACT(MONTH FROM ss.created_at)::int IN (${Prisma.join(months)})`;
+
   return prisma.$queryRaw<SeasonalStopRow[]>(Prisma.sql`
     SELECT
       ss.route_cluster_id AS "routeClusterId",
@@ -279,7 +360,7 @@ async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, mon
       ON sc.stop_cluster_id = ss.stop_cluster_id
     WHERE ss.pipeline_run_id = ${activePipelineRunId}
       AND rc.dow = ${day}
-      AND EXTRACT(MONTH FROM ss.created_at)::int IN (${Prisma.join(months)})
+      AND ${dateFilter}
     GROUP BY
       ss.route_cluster_id,
       ss.stop_cluster_id,
@@ -293,13 +374,21 @@ async function getSeasonalStopRows(activePipelineRunId: bigint, day: string, mon
 // A "visit" = one (stop, date, truck) — a stop-visit usually contains multiple
 // line-item sales, so this lands ~$35-45, not the ~$9 raw per-sale average.
 // Used as the shrinkage prior for per-stop expected-$-per-visit.
-async function getPooledMeanPerVisit(activePipelineRunId: bigint, months: number[]): Promise<number> {
+async function getPooledMeanPerVisit(
+  activePipelineRunId: bigint,
+  months: number[],
+  dateRange?: DateRange
+): Promise<number> {
+  const dateFilter = dateRange
+    ? Prisma.sql`ss.created_at >= ${dateRange.from}::date AND ss.created_at < (${dateRange.to}::date + interval '1 day')`
+    : Prisma.sql`EXTRACT(MONTH FROM ss.created_at)::int IN (${Prisma.join(months)})`;
+
   const rows = await prisma.$queryRaw<Array<{ mu: number | null }>>(Prisma.sql`
     WITH visits AS (
       SELECT SUM(ss.amount) AS visit_amount
       FROM sale_stops ss
       WHERE ss.pipeline_run_id = ${activePipelineRunId}
-        AND EXTRACT(MONTH FROM ss.created_at)::int IN (${Prisma.join(months)})
+        AND ${dateFilter}
       GROUP BY ss.stop_cluster_id, ss.created_at::date, ss.truck_number
     )
     SELECT (SUM(visit_amount) / NULLIF(COUNT(*), 0))::double precision AS mu

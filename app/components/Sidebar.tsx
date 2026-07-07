@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
 import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteNameDto } from "@/types/routes";
 
+type DateRange = { from: string; to: string };
+
 type SidebarProps = {
   topStops: number;
   routeClusterLimit: number;
   days: DayOption[];
   months: MonthOption[];
   selectedMonths: number[];
+  dateRange: DateRange | null;
   routeClusters: RouteClusterOption[];
   routeNamesById: Map<number, RouteNameDto>;
   persistentRouteClusterIds: number[];
@@ -26,6 +29,8 @@ type SidebarProps = {
   onSaveRouteName: (routeClusterId: number, name: string, updatedBy: string) => Promise<RouteNameDto>;
   onDayChange: (day: string) => void;
   onMonthsChange: (months: number[]) => void;
+  onDateRangeApply: (range: DateRange) => void;
+  onDateRangeClear: () => void;
   onRouteClusterChange: (routeClusterId: number) => void;
   onApplyDisplayLimits: (values: { topStops: number; routeClusterLimit: number }) => void;
   onAddPersistentRouteCluster: (routeClusterId: number) => Promise<boolean>;
@@ -42,6 +47,7 @@ export function Sidebar({
   days,
   months,
   selectedMonths,
+  dateRange,
   routeClusters,
   routeNamesById,
   persistentRouteClusterIds,
@@ -58,6 +64,8 @@ export function Sidebar({
   onSaveRouteName,
   onDayChange,
   onMonthsChange,
+  onDateRangeApply,
+  onDateRangeClear,
   onRouteClusterChange,
   onApplyDisplayLimits,
   onAddPersistentRouteCluster,
@@ -71,6 +79,8 @@ export function Sidebar({
   const [draftRouteClusterLimit, setDraftRouteClusterLimit] = useState<string>(String(routeClusterLimit));
   const [draftPersistentRouteClusterId, setDraftPersistentRouteClusterId] = useState<string>("");
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
+  const [draftFromDate, setDraftFromDate] = useState<string>(dateRange?.from ?? "");
+  const [draftToDate, setDraftToDate] = useState<string>(dateRange?.to ?? "");
   const stopItemRefs = useRef(new Map<number, HTMLLIElement>());
 
   useEffect(() => {
@@ -80,6 +90,16 @@ export function Sidebar({
   useEffect(() => {
     setDraftRouteClusterLimit(String(routeClusterLimit));
   }, [routeClusterLimit]);
+
+  useEffect(() => {
+    setDraftFromDate(dateRange?.from ?? "");
+    setDraftToDate(dateRange?.to ?? "");
+  }, [dateRange]);
+
+  const isDateRangeActive = dateRange != null;
+  const canApplyDateRange =
+    draftFromDate.length > 0 && draftToDate.length > 0 && draftFromDate <= draftToDate;
+
 
   const parsedTopStops = Number(draftTopStops);
   const parsedRouteClusterLimit = Number(draftRouteClusterLimit);
@@ -173,7 +193,14 @@ export function Sidebar({
               </label>
             </div>
             <div className="mt-3">
-              <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Months</div>
+              <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                <span>Months</span>
+                {isDateRangeActive ? (
+                  <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-accent normal-case">
+                    Date range active
+                  </span>
+                ) : null}
+              </div>
               <div className="flex flex-wrap gap-2">
                 {months.map((month) => {
                   const isSelected = selectedMonths.includes(month.value);
@@ -183,13 +210,19 @@ export function Sidebar({
                     <button
                       key={month.value}
                       type="button"
+                      disabled={isDateRangeActive}
                       className={[
                         "rounded-full border px-3 py-2 text-xs font-semibold tracking-[0.16em] transition",
-                        isSelected
-                          ? "border-ink bg-ink text-white shadow-sm"
-                          : "border-line bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-100"
+                        isDateRangeActive
+                          ? "cursor-not-allowed border-line bg-slate-100 text-slate-300"
+                          : isSelected
+                            ? "border-ink bg-ink text-white shadow-sm"
+                            : "border-line bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-100"
                       ].join(" ")}
                       onClick={() => {
+                        if (isDateRangeActive) {
+                          return;
+                        }
                         const nextMonths = isSelected
                           ? selectedMonths.filter((value) => value !== month.value)
                           : [...selectedMonths, month.value].sort((left, right) => left - right);
@@ -206,6 +239,63 @@ export function Sidebar({
                 })}
               </div>
             </div>
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                <span>Date range</span>
+                {isDateRangeActive ? (
+                  <span className="rounded-full border border-line bg-white px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-slate-600 normal-case">
+                    {dateRange?.from} → {dateRange?.to}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex min-w-0 flex-1 flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  From
+                  <input
+                    type="date"
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                    value={draftFromDate}
+                    max={draftToDate || undefined}
+                    onChange={(event) => setDraftFromDate(event.target.value)}
+                  />
+                </label>
+                <label className="flex min-w-0 flex-1 flex-col gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  To
+                  <input
+                    type="date"
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
+                    value={draftToDate}
+                    min={draftFromDate || undefined}
+                    onChange={(event) => setDraftToDate(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
+                  disabled={!canApplyDateRange}
+                  onClick={() => {
+                    if (canApplyDateRange) {
+                      onDateRangeApply({ from: draftFromDate, to: draftToDate });
+                    }
+                  }}
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  disabled={!isDateRangeActive}
+                  onClick={() => {
+                    setDraftFromDate("");
+                    setDraftToDate("");
+                    onDateRangeClear();
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
             <div className="mt-3 flex gap-3">
               <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
                 Route Cluster
