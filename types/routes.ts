@@ -81,3 +81,10 @@ export type RouteNameDto = {
   updatedBy: string;
   updatedAt: string;
 };
+
+export type RouteReviewCommentsDto = {
+  routeClusterId: number;
+  day: string;
+  comments: string[];
+  generatedAt: string | null;
+};

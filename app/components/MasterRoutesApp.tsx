@@ -9,6 +9,7 @@ import type {
   RouteClusterOption,
   RouteDetailDto,
   RouteNameDto,
+  RouteReviewCommentsDto,
   RouteSummaryDto
 } from "@/types/routes";
 import { Sidebar } from "@/app/components/Sidebar";
@@ -54,6 +55,34 @@ export function MasterRoutesApp() {
   const [isPersistentRoutesUpdating, setIsPersistentRoutesUpdating] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
   const [routeNamesById, setRouteNamesById] = useState<Map<number, RouteNameDto>>(new Map());
+  const [reviewComments, setReviewComments] = useState<RouteReviewCommentsDto | null>(null);
+
+  useEffect(() => {
+    if (!selectedDay || selectedRouteClusterId == null) {
+      setReviewComments(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const dto = await fetchJson<RouteReviewCommentsDto>(
+          `/api/route-comments?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}`,
+          { cache: "no-store" },
+          "Unable to load route review comments."
+        );
+        if (!cancelled) {
+          setReviewComments(dto);
+        }
+      } catch {
+        if (!cancelled) {
+          setReviewComments(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay, selectedRouteClusterId]);
 
   useEffect(() => {
     void initialize();
@@ -433,6 +462,7 @@ export function MasterRoutesApp() {
           selectedDay={selectedDay}
           selectedRouteClusterId={selectedRouteClusterId}
           routeDetail={routeDetailWithArrivalTimes}
+          reviewComments={reviewComments}
           arrivalTimes={arrivalTimes}
           selectedStopId={selectedStopId}
           recentlyEditedStopId={recentlyEditedStopId}

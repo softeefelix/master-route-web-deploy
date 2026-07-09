@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
-import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteNameDto } from "@/types/routes";
+import type { DayOption, MonthOption, RouteClusterOption, RouteDetailDto, RouteNameDto, RouteReviewCommentsDto } from "@/types/routes";
 
 type DateRange = { from: string; to: string };
 
@@ -19,6 +19,7 @@ type SidebarProps = {
   selectedDay: string;
   selectedRouteClusterId: number | null;
   routeDetail: RouteDetailDto | null;
+  reviewComments: RouteReviewCommentsDto | null;
   arrivalTimes: Record<string, string>;
   selectedStopId: number | null;
   recentlyEditedStopId: number | null;
@@ -54,6 +55,7 @@ export function Sidebar({
   selectedDay,
   selectedRouteClusterId,
   routeDetail,
+  reviewComments,
   arrivalTimes,
   selectedStopId,
   recentlyEditedStopId,
@@ -446,6 +448,41 @@ export function Sidebar({
                   <span className="font-semibold text-ink">Total past sales:</span> {formatCurrency(routeDetail.totalSalesAmount)}
                 </div>
               </div>
+              {reviewComments && reviewComments.comments.length > 0 ? (
+                <div className="rounded-2xl border border-amber-300/60 bg-amber-50 px-3 py-3">
+                  <div className="flex items-baseline justify-between">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                      Route Review
+                    </div>
+                    {reviewComments.generatedAt ? (
+                      <div className="text-[10px] text-amber-600">
+                        {new Date(reviewComments.generatedAt).toLocaleDateString()}
+                      </div>
+                    ) : null}
+                  </div>
+                  <ul className="mt-2 space-y-1.5">
+                    {reviewComments.comments.map((comment, index) => {
+                      const isCritical = comment.startsWith("TIMING-CRITICAL");
+                      const isAction =
+                        comment.startsWith("RESHAPE") || comment.startsWith("MOVE");
+                      return (
+                        <li
+                          key={index}
+                          className={`text-xs leading-relaxed ${
+                            isCritical
+                              ? "font-semibold text-red-700"
+                              : isAction
+                                ? "font-medium text-amber-800"
+                                : "text-slate-700"
+                          }`}
+                        >
+                          {comment}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
