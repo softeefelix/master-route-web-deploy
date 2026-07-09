@@ -483,6 +483,16 @@ export function Sidebar({
                   </ul>
                 </div>
               ) : null}
+              {selectedDay && selectedRouteClusterId != null ? (
+                <a
+                  href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
+                >
+                  🖨 Print driver route sheet (timed)
+                </a>
+              ) : null}
             </div>
           ) : null}
         </div>
