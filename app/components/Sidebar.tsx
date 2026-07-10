@@ -121,6 +121,42 @@ export function Sidebar({
   const canAddPersistentRouteCluster =
     isPersistentRouteClusterIdValid && !isPersistentRouteClusterAlreadyAdded && !isPersistentRoutesUpdating;
   const stopOrderKey = routeDetail?.stops.map((stop) => stop.stopClusterId).join("|") ?? "";
+
+  // MR26: CSV export of the selected route (visit order, address, coords, times, economics).
+  function downloadRouteCsv() {
+    if (!routeDetail) {
+      return;
+    }
+    const esc = (value: unknown) => {
+      const str = value == null ? "" : String(value);
+      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    };
+    const header = [
+      "visit_order", "address", "lat", "lon", "arrival_time",
+      "expected_per_visit", "past_sales_per_day", "average_sale", "stop_cluster_id"
+    ];
+    const rows = routeDetail.stops.map((stop) =>
+      [
+        stop.visitOrder,
+        esc(stop.address),
+        stop.lat,
+        stop.lon,
+        arrivalTimes[String(stop.stopClusterId)] ?? stop.pastArrivalTime ?? "",
+        stop.expectedPerVisit ?? "",
+        stop.pastSalesPerDaySameDow ?? "",
+        stop.averageSale ?? "",
+        stop.stopClusterId
+      ].join(",")
+    );
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(routeNamesById.get(routeDetail.routeClusterId)?.name ?? `route-${routeDetail.routeClusterId}`).replace(/[^\w-]+/g, "_")}-${routeDetail.day}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
   const visibleStopOrders = useMemo(() => {
     const orders = new Map<number, number>();
     let nextOrder = 1;
@@ -484,14 +520,23 @@ export function Sidebar({
                 </div>
               ) : null}
               {selectedDay && selectedRouteClusterId != null ? (
-                <a
-                  href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
-                >
-                  🖨 Print driver route sheet (timed)
-                </a>
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
+                  >
+                    🖨 Print route sheet
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => downloadRouteCsv()}
+                    className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
+                  >
+                    ⬇ Download CSV
+                  </button>
+                </div>
               ) : null}
             </div>
           ) : null}

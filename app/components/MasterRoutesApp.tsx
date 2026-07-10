@@ -14,9 +14,9 @@ import type {
 } from "@/types/routes";
 import { Sidebar } from "@/app/components/Sidebar";
 import {
-  clearArrivalTime,
+  fetchRouteOverrides,
   getArrivalTimes,
-  saveArrivalTime,
+  persistStopOverride,
   sortStopsByArrivalTime
 } from "@/lib/arrival-times";
 import { fetchJson } from "@/lib/api";
@@ -138,8 +138,12 @@ export function MasterRoutesApp() {
       setMonths(availableMonths);
       setPersistentRouteClusterIds(toPersistentRouteClusterIds(persistentRoutes));
 
-      const firstDay = availableDays[0]?.value;
-      const initialMonths = availableMonths.map((month) => month.value);
+      // MR26: restore state from the URL if present (shareable links).
+      const urlState = readUrlState(availableDays, availableMonths);
+
+      const firstDay = urlState.day ?? availableDays[0]?.value;
+      const initialMonths =
+        urlState.months ?? availableMonths.map((month) => month.value);
 
       if (!firstDay || initialMonths.length === 0) {
         setLoadState("ready");
@@ -147,13 +151,66 @@ export function MasterRoutesApp() {
       }
 
       setSelectedMonths(initialMonths);
-      await loadDay(firstDay, initialMonths, undefined, topStops, routeClusterLimit);
+      if (urlState.topStops) {
+        setTopStops(urlState.topStops);
+      }
+      await loadDay(
+        firstDay,
+        initialMonths,
+        urlState.routeClusterId ?? undefined,
+        urlState.topStops ?? topStops,
+        routeClusterLimit
+      );
     } catch (error) {
       console.error(error);
       setLoadState("error");
       setErrorMessage(error instanceof Error ? error.message : "Unexpected error");
     }
   }
+
+  // ---- MR26: shareable URL state ----
+  function readUrlState(availableDays: DayOption[], availableMonths: MonthOption[]) {
+    if (typeof window === "undefined") {
+      return {} as { day?: string; routeClusterId?: number; months?: number[]; topStops?: number };
+    }
+    const params = new URLSearchParams(window.location.search);
+    const dayParam = params.get("day");
+    const day = availableDays.some((option) => option.value === dayParam) ? dayParam! : undefined;
+    const routeParam = Number(params.get("route"));
+    const routeClusterId = Number.isInteger(routeParam) && routeParam > 0 ? routeParam : undefined;
+    const validMonths = new Set(availableMonths.map((month) => month.value));
+    const months = params.getAll("m").map(Number).filter((month) => validMonths.has(month));
+    const topStopsParam = Number(params.get("top"));
+    const topStops = [30, 50].includes(topStopsParam) ? topStopsParam : undefined;
+    return {
+      day,
+      routeClusterId,
+      months: months.length > 0 ? months : undefined,
+      topStops
+    };
+  }
+
+  useEffect(() => {
+    // Reflect current view in the URL so it can be copied/shared.
+    if (typeof window === "undefined" || loadState !== "ready" || !selectedDay) {
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("day", selectedDay);
+    if (selectedRouteClusterId != null) {
+      params.set("route", String(selectedRouteClusterId));
+    }
+    if (selectedMonths.length > 0 && selectedMonths.length < months.length) {
+      for (const month of selectedMonths) {
+        params.append("m", String(month));
+      }
+    }
+    if (topStops !== DEFAULT_TOP_STOPS) {
+      params.set("top", String(topStops));
+    }
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+  }, [loadState, selectedDay, selectedRouteClusterId, selectedMonths, months, topStops]);
+
 
   function buildMonthsQuery(monthValues: number[]) {
     return monthValues.map((month) => `month=${encodeURIComponent(String(month))}`).join("&");
@@ -265,6 +322,14 @@ export function MasterRoutesApp() {
       );
       setArrivalTimes(getArrivalTimes(detail.routeClusterId, detail.day));
       setRouteDetail(detail);
+      // MR25: hydrate durable overrides from the DB (replaces localStorage cache).
+      void fetchRouteOverrides(detail.routeClusterId, detail.day).then((overrides) => {
+        setArrivalTimes(overrides.arrivalTimes);
+        setHiddenStopsByRoute((current) => ({
+          ...current,
+          [buildRouteVisibilityKey(detail)]: overrides.hiddenStopIds
+        }));
+      });
       setSelectedStopId(
         preferredStopId != null && detail.stops.some((stop) => stop.stopClusterId === preferredStopId)
           ? preferredStopId
@@ -339,28 +404,42 @@ export function MasterRoutesApp() {
       return;
     }
 
-    if (time === "") {
-      clearArrivalTime(routeDetail.routeClusterId, routeDetail.day, stopClusterId);
-    } else {
-      saveArrivalTime(routeDetail.routeClusterId, routeDetail.day, stopClusterId, time);
-    }
+    const nextTime = time === "" ? null : time;
+    const isHidden = hiddenStopIds.has(stopClusterId);
 
-    setArrivalTimes(getArrivalTimes(routeDetail.routeClusterId, routeDetail.day));
+    setArrivalTimes((current) => {
+      const next = { ...current };
+      if (nextTime) {
+        next[String(stopClusterId)] = nextTime;
+      } else {
+        delete next[String(stopClusterId)];
+      }
+      return next;
+    });
     setSelectedStopId(stopClusterId);
     setRecentlyEditedStopId(stopClusterId);
+
+    // MR25: durable write-through to the DB (shared across users + print sheet).
+    void persistStopOverride(routeDetail.routeClusterId, routeDetail.day, stopClusterId, {
+      arrivalTime: nextTime,
+      hidden: isHidden
+    });
   }
 
   function toggleStopVisibility(stopClusterId: number) {
-    if (!routeDetailWithArrivalTimes) {
+    if (!routeDetailWithArrivalTimes || !routeDetail) {
       return;
     }
 
     const routeKey = buildRouteVisibilityKey(routeDetailWithArrivalTimes);
+    const currentlyHidden = (hiddenStopsByRoute[routeKey] ?? []).includes(stopClusterId);
+    const nextHidden = !currentlyHidden;
+
     setHiddenStopsByRoute((current) => {
       const currentHiddenStopIds = current[routeKey] ?? [];
-      const nextHiddenStopIds = currentHiddenStopIds.includes(stopClusterId)
-        ? currentHiddenStopIds.filter((hiddenStopId) => hiddenStopId !== stopClusterId)
-        : [...currentHiddenStopIds, stopClusterId];
+      const nextHiddenStopIds = nextHidden
+        ? [...currentHiddenStopIds, stopClusterId]
+        : currentHiddenStopIds.filter((hiddenStopId) => hiddenStopId !== stopClusterId);
 
       if (nextHiddenStopIds.length === 0) {
         const next = { ...current };
@@ -372,6 +451,12 @@ export function MasterRoutesApp() {
         ...current,
         [routeKey]: nextHiddenStopIds
       };
+    });
+
+    // MR25: durable write-through to the DB.
+    void persistStopOverride(routeDetail.routeClusterId, routeDetail.day, stopClusterId, {
+      arrivalTime: arrivalTimes[String(stopClusterId)] ?? null,
+      hidden: nextHidden
     });
   }
 

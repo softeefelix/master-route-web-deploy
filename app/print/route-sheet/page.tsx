@@ -55,16 +55,22 @@ export default async function PrintRoutePage({
     return <main style={{ padding: 32, fontFamily: "system-ui" }}>Missing day or routeClusterId.</main>;
   }
 
-  const [timed, names] = await Promise.all([
+  const [timed, names, overrides] = await Promise.all([
     fetchFromApi<TimedRoute>(
       `/api/timed-route?day=${encodeURIComponent(day)}&routeClusterId=${encodeURIComponent(routeClusterId)}`
     ),
-    fetchFromApi<RouteName[]>(`/api/route-names`)
+    fetchFromApi<RouteName[]>(`/api/route-names`),
+    fetchFromApi<{ overrides: Array<{ stopClusterId: number; hidden: boolean }> }>(
+      `/api/stop-overrides?day=${encodeURIComponent(day)}&routeClusterId=${encodeURIComponent(routeClusterId)}`
+    )
   ]);
 
+  const hiddenStops = new Set(
+    (overrides?.overrides ?? []).filter((o) => o.hidden).map((o) => o.stopClusterId)
+  );
   const routeName =
     names?.find((n) => n.routeClusterId === Number(routeClusterId))?.name ?? `Route ${routeClusterId}`;
-  const stops = timed?.stops ?? [];
+  const stops = (timed?.stops ?? []).filter((s) => !hiddenStops.has(s.stopClusterId));
   const totalExpected = stops.reduce((sum, s) => sum + s.expPerVisit, 0);
 
   return (

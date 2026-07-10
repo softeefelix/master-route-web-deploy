@@ -1,9 +1,76 @@
 import type { RouteStopDto } from "@/types/routes";
 
 export type ArrivalTimesByStop = Record<string, string>;
+export type RouteOverridesState = {
+  arrivalTimes: ArrivalTimesByStop;
+  hiddenStopIds: number[];
+};
 
 const ARRIVAL_TIME_KEY_PREFIX = "master-route-web:arrival-times:v1";
 const ARRIVAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * MR25: overrides are persisted in the DB (route_stop_overrides) via
+ * /api/stop-overrides so edits are durable and visible to every user and to
+ * the print sheet. localStorage remains a read-through cache / offline
+ * fallback only — the DB is the source of truth.
+ */
+export async function fetchRouteOverrides(
+  routeClusterId: number,
+  dow: string
+): Promise<RouteOverridesState> {
+  try {
+    const response = await fetch(
+      `/api/stop-overrides?day=${encodeURIComponent(dow)}&routeClusterId=${routeClusterId}`,
+      { cache: "no-store" }
+    );
+    if (!response.ok) {
+      throw new Error(`stop-overrides ${response.status}`);
+    }
+    const dto = (await response.json()) as {
+      overrides: Array<{ stopClusterId: number; arrivalTime: string | null; hidden: boolean }>;
+    };
+    const arrivalTimes: ArrivalTimesByStop = {};
+    const hiddenStopIds: number[] = [];
+    for (const override of dto.overrides) {
+      if (override.arrivalTime && isArrivalTime(override.arrivalTime)) {
+        arrivalTimes[String(override.stopClusterId)] = override.arrivalTime;
+      }
+      if (override.hidden) {
+        hiddenStopIds.push(override.stopClusterId);
+      }
+    }
+    writeArrivalTimesCache(routeClusterId, dow, arrivalTimes);
+    return { arrivalTimes, hiddenStopIds };
+  } catch {
+    // Offline / API failure: fall back to the local cache (times only).
+    return { arrivalTimes: getArrivalTimes(routeClusterId, dow), hiddenStopIds: [] };
+  }
+}
+
+export async function persistStopOverride(
+  routeClusterId: number,
+  dow: string,
+  stopClusterId: number,
+  override: { arrivalTime: string | null; hidden: boolean }
+): Promise<boolean> {
+  try {
+    const response = await fetch("/api/stop-overrides", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        routeClusterId,
+        day: dow,
+        stopClusterId,
+        arrivalTime: override.arrivalTime,
+        hidden: override.hidden
+      })
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function getArrivalTimes(routeClusterId: number, dow: string): ArrivalTimesByStop {
   const storage = getLocalStorage();
@@ -32,28 +99,6 @@ export function getArrivalTimes(routeClusterId: number, dow: string): ArrivalTim
   } catch {
     return {};
   }
-}
-
-export function saveArrivalTime(
-  routeClusterId: number,
-  dow: string,
-  stopClusterId: number,
-  time: string
-) {
-  if (!isArrivalTime(time)) {
-    return;
-  }
-
-  writeArrivalTimes(routeClusterId, dow, {
-    ...getArrivalTimes(routeClusterId, dow),
-    [String(stopClusterId)]: time
-  });
-}
-
-export function clearArrivalTime(routeClusterId: number, dow: string, stopClusterId: number) {
-  const currentTimes = getArrivalTimes(routeClusterId, dow);
-  delete currentTimes[String(stopClusterId)];
-  writeArrivalTimes(routeClusterId, dow, currentTimes);
 }
 
 export function sortStopsByArrivalTime<TStop extends Pick<RouteStopDto, "stopClusterId">>(
@@ -97,11 +142,11 @@ function getSavedArrivalTime(savedTimes: ArrivalTimesByStop, stopClusterId: numb
   return isArrivalTime(time) ? time : null;
 }
 
-function isArrivalTime(time: unknown): time is string {
+export function isArrivalTime(time: unknown): time is string {
   return typeof time === "string" && ARRIVAL_TIME_PATTERN.test(time);
 }
 
-function writeArrivalTimes(routeClusterId: number, dow: string, times: ArrivalTimesByStop) {
+function writeArrivalTimesCache(routeClusterId: number, dow: string, times: ArrivalTimesByStop) {
   const storage = getLocalStorage();
   if (!storage) {
     return;
