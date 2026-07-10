@@ -639,6 +639,18 @@ export function Sidebar({
                           onChange={(event) => onArrivalTimeChange(stop.stopClusterId, event.target.value)}
                           aria-label={`Arrival time for stop cluster ${stop.stopClusterId}`}
                         />
+                        {stop.plannedArrive ? (
+                          <span className="leading-tight">
+                            <span className="block">Planned Arrive</span>
+                            <span
+                              className={
+                                isStopHidden ? "block text-xs text-slate-400" : "block text-xs font-semibold text-accent"
+                              }
+                            >
+                              {stop.plannedArrive}
+                            </span>
+                          </span>
+                        ) : null}
                         {stop.pastArrivalTime ? (
                           <span className="leading-tight">
                             <span className="block">Past Visit Time</span>

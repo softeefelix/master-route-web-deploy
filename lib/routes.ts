@@ -177,7 +177,80 @@ export async function getRouteDetail(
     return null;
   }
 
-  return toRouteDetail(ordered, colorMap, routeNameMap);
+  const detail = toRouteDetail(ordered, colorMap, routeNameMap);
+  return applyTimedSchedule(detail, routeClusterId, day);
+}
+
+/**
+ * MR44 follow-up (Felix 2026-07-09): the main route view must reflect the
+ * time-aware master schedule, not the legacy geographic sweep. When a timed
+ * schedule exists for (route, day), order the stops by it and attach each
+ * stop's planned arrive time. Stops without a timed slot keep their relative
+ * geographic order after the scheduled ones.
+ */
+async function applyTimedSchedule(
+  detail: RouteDetailDto,
+  routeClusterId: number,
+  day: string
+): Promise<RouteDetailDto> {
+  try {
+    const timedRows = await prisma.$queryRaw<
+      Array<{ stop_cluster_id: number; stop_order: number; arrive: string }>
+    >(Prisma.sql`
+      SELECT stop_cluster_id, stop_order, arrive
+      FROM route_timed_stops
+      WHERE route_cluster_id = ${routeClusterId} AND dow = ${day}
+    `);
+    if (timedRows.length === 0) {
+      return detail;
+    }
+
+    // The timed schedule stores canonical stop ids; the detail view uses raw
+    // ids. Map raw -> canonical through the alias table.
+    const timedIds = timedRows.map((row) => row.stop_cluster_id);
+    const aliasRows = await prisma.$queryRaw<
+      Array<{ alias_stop_cluster_id: number; canonical_stop_cluster_id: number }>
+    >(Prisma.sql`
+      SELECT alias_stop_cluster_id, canonical_stop_cluster_id
+      FROM stop_cluster_aliases
+      WHERE canonical_stop_cluster_id IN (${Prisma.join(timedIds)})
+    `);
+    const canonicalOf = new Map<number, number>();
+    for (const row of aliasRows) {
+      canonicalOf.set(row.alias_stop_cluster_id, row.canonical_stop_cluster_id);
+    }
+    const slotByCanonical = new Map(
+      timedRows.map((row) => [row.stop_cluster_id, { order: row.stop_order, arrive: row.arrive }])
+    );
+
+    const scheduled: Array<{ stop: RouteDetailDto["stops"][number]; order: number }> = [];
+    const unscheduled: RouteDetailDto["stops"] = [];
+    for (const stop of detail.stops) {
+      const canonical = canonicalOf.get(stop.stopClusterId) ?? stop.stopClusterId;
+      const slot = slotByCanonical.get(canonical);
+      if (slot) {
+        scheduled.push({
+          stop: { ...stop, plannedArrive: slot.arrive },
+          order: slot.order
+        });
+      } else {
+        unscheduled.push({ ...stop, plannedArrive: null });
+      }
+    }
+    scheduled.sort((left, right) => left.order - right.order);
+
+    const stops = [...scheduled.map((entry) => entry.stop), ...unscheduled].map(
+      (stop, index) => ({ ...stop, visitOrder: index + 1 })
+    );
+    return {
+      ...detail,
+      stops,
+      polyline: stops.map((stop) => [stop.lat, stop.lon] as [number, number])
+    };
+  } catch {
+    // Timed table missing / DB hiccup: fall back to the legacy ordering.
+    return detail;
+  }
 }
 
 // --- Module-level memo cache for getSeasonalRouteClustersForDay results ---

@@ -28,6 +28,8 @@ export type RouteStopDto = {
   label: string | null;
   pastSalesPerDaySameDow: number | null;
   pastArrivalTime: string | null;
+  /** MR44: planned arrive time from the time-aware master schedule (HH:MM), when scheduled. */
+  plannedArrive?: string | null;
   averageSale: number | null;
   /** Shrunk expected $ per visit: (totalSales + K*mu) / (visits + K). */
   expectedPerVisit: number | null;
