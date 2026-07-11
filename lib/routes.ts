@@ -178,35 +178,51 @@ export async function getRouteDetail(
   }
 
   const detail = toRouteDetail(ordered, colorMap, routeNameMap);
-  return applyTimedSchedule(detail, routeClusterId, day);
+  return applyTimedSchedule(detail, routeClusterId, day, cluster?.stops ?? []);
 }
 
 /**
- * MR44 follow-up (Felix 2026-07-09): the main route view must reflect the
- * time-aware master schedule, not the legacy geographic sweep. When a timed
- * schedule exists for (route, day), order the stops by it and attach each
- * stop's planned arrive time. Stops without a timed slot keep their relative
- * geographic order after the scheduled ones.
+ * MR44 (Felix 2026-07-09, tightened 2026-07-10): the main route view must be
+ * print-sheet parity — the SAME stop set, in the SAME order, as the timed
+ * master schedule (route_timed_stops). The earlier overlay only re-ordered
+ * the top-N-by-score stops, so most scheduled stops were missing from the map
+ * and unscheduled high scorers led the route. Now:
+ *   1. Every stop in the timed schedule is shown, in slot order, with its
+ *      planned arrive time — even if it scored below the top-N cutoff
+ *      (backfilled from the route's full seasonal stop pool, or from
+ *      stop_clusters when it has no sales rows in the selected date scope).
+ *   2. Unscheduled top scorers trail AFTER the schedule (candidate/review
+ *      stops, plannedArrive = null).
+ * Falls back to the legacy score-ordered view when no timed schedule exists.
  */
 async function applyTimedSchedule(
   detail: RouteDetailDto,
   routeClusterId: number,
-  day: string
+  day: string,
+  seasonalStopPool: SeasonalStop[]
 ): Promise<RouteDetailDto> {
   try {
     const timedRows = await prisma.$queryRaw<
-      Array<{ stop_cluster_id: number; stop_order: number; arrive: string }>
+      Array<{
+        stop_cluster_id: number;
+        stop_order: number;
+        arrive: string;
+        exp_per_visit: Prisma.Decimal | null;
+        visits: number | null;
+        address: string | null;
+      }>
     >(Prisma.sql`
-      SELECT stop_cluster_id, stop_order, arrive
+      SELECT stop_cluster_id, stop_order, arrive, exp_per_visit, visits, address
       FROM route_timed_stops
       WHERE route_cluster_id = ${routeClusterId} AND dow = ${day}
+      ORDER BY stop_order
     `);
     if (timedRows.length === 0) {
       return detail;
     }
 
-    // The timed schedule stores canonical stop ids; the detail view uses raw
-    // ids. Map raw -> canonical through the alias table.
+    // The timed schedule stores canonical stop ids; the view uses raw ids.
+    // Map raw -> canonical through the alias table.
     const timedIds = timedRows.map((row) => row.stop_cluster_id);
     const aliasRows = await prisma.$queryRaw<
       Array<{ alias_stop_cluster_id: number; canonical_stop_cluster_id: number }>
@@ -219,33 +235,124 @@ async function applyTimedSchedule(
     for (const row of aliasRows) {
       canonicalOf.set(row.alias_stop_cluster_id, row.canonical_stop_cluster_id);
     }
-    const slotByCanonical = new Map(
-      timedRows.map((row) => [row.stop_cluster_id, { order: row.stop_order, arrive: row.arrive }])
-    );
+    const toCanonical = (rawId: number) => canonicalOf.get(rawId) ?? rawId;
 
-    const scheduled: Array<{ stop: RouteDetailDto["stops"][number]; order: number }> = [];
-    const unscheduled: RouteDetailDto["stops"] = [];
+    // Index the detail (top-N) stops and the route's FULL seasonal stop pool
+    // by canonical id so every scheduled stop can be materialized.
+    const detailByCanonical = new Map<number, RouteDetailDto["stops"][number]>();
     for (const stop of detail.stops) {
-      const canonical = canonicalOf.get(stop.stopClusterId) ?? stop.stopClusterId;
-      const slot = slotByCanonical.get(canonical);
-      if (slot) {
-        scheduled.push({
-          stop: { ...stop, plannedArrive: slot.arrive },
-          order: slot.order
-        });
-      } else {
-        unscheduled.push({ ...stop, plannedArrive: null });
+      const canonical = toCanonical(stop.stopClusterId);
+      if (!detailByCanonical.has(canonical)) {
+        detailByCanonical.set(canonical, stop);
       }
     }
-    scheduled.sort((left, right) => left.order - right.order);
+    const poolByCanonical = new Map<number, SeasonalStop>();
+    for (const stop of seasonalStopPool) {
+      const canonical = toCanonical(stop.stopClusterId);
+      const existing = poolByCanonical.get(canonical);
+      if (!existing || stop.visits > existing.visits) {
+        poolByCanonical.set(canonical, stop);
+      }
+    }
 
-    const stops = [...scheduled.map((entry) => entry.stop), ...unscheduled].map(
-      (stop, index) => ({ ...stop, visitOrder: index + 1 })
-    );
+    // Scheduled stops with no sales rows in the selected date scope need
+    // coordinates from stop_clusters directly.
+    const missingIds = timedRows
+      .map((row) => row.stop_cluster_id)
+      .filter((id) => !detailByCanonical.has(id) && !poolByCanonical.has(id));
+    const coordsById = new Map<number, { address: string | null; lat: number; lon: number }>();
+    if (missingIds.length > 0) {
+      const coordRows = await prisma.$queryRaw<
+        Array<{ stop_cluster_id: number; address: string | null; centroid_lat: number; centroid_long: number }>
+      >(Prisma.sql`
+        SELECT stop_cluster_id, address, centroid_lat, centroid_long
+        FROM stop_clusters
+        WHERE stop_cluster_id IN (${Prisma.join(missingIds)})
+      `);
+      for (const row of coordRows) {
+        coordsById.set(row.stop_cluster_id, {
+          address: row.address,
+          lat: row.centroid_lat,
+          lon: row.centroid_long
+        });
+      }
+    }
+
+    const scheduled: RouteDetailDto["stops"] = [];
+    const scheduledCanonicals = new Set<number>();
+    for (const row of timedRows) {
+      const canonical = row.stop_cluster_id;
+      const fromDetail = detailByCanonical.get(canonical);
+      if (fromDetail) {
+        scheduled.push({ ...fromDetail, plannedArrive: row.arrive });
+        scheduledCanonicals.add(canonical);
+        continue;
+      }
+
+      const fromPool = poolByCanonical.get(canonical);
+      if (fromPool) {
+        scheduled.push({
+          stopClusterId: fromPool.stopClusterId,
+          visitOrder: 0,
+          address: fromPool.address,
+          lat: fromPool.lat,
+          lon: fromPool.lon,
+          stopType: null,
+          label: null,
+          pastSalesPerDaySameDow: fromPool.totalSales,
+          pastArrivalTime: fromPool.pastArrivalTime,
+          plannedArrive: row.arrive,
+          averageSale: fromPool.visits > 0 ? fromPool.totalSales / fromPool.visits : null,
+          expectedPerVisit: fromPool.expectedPerVisit,
+          otherDowAvgSalesPerDay: fromPool.visitsNorm,
+          predictedSalesPerDay: fromPool.score,
+          salesMatchesWithin50m: fromPool.visits
+        });
+        scheduledCanonicals.add(canonical);
+        continue;
+      }
+
+      const coords = coordsById.get(canonical);
+      if (!coords) {
+        // No coordinates anywhere — can't place it on the map; skip.
+        continue;
+      }
+      scheduled.push({
+        stopClusterId: canonical,
+        visitOrder: 0,
+        address: row.address ?? coords.address ?? "Unknown address",
+        lat: coords.lat,
+        lon: coords.lon,
+        stopType: null,
+        label: null,
+        pastSalesPerDaySameDow: null,
+        pastArrivalTime: null,
+        plannedArrive: row.arrive,
+        averageSale: null,
+        expectedPerVisit: row.exp_per_visit == null ? null : Number(row.exp_per_visit),
+        otherDowAvgSalesPerDay: null,
+        predictedSalesPerDay: null,
+        salesMatchesWithin50m: row.visits
+      });
+      scheduledCanonicals.add(canonical);
+    }
+
+    // Unscheduled top scorers trail after the schedule (review candidates).
+    const unscheduled = detail.stops
+      .filter((stop) => !scheduledCanonicals.has(toCanonical(stop.stopClusterId)))
+      .map((stop) => ({ ...stop, plannedArrive: null }));
+
+    const stops = [...scheduled, ...unscheduled].map((stop, index) => ({
+      ...stop,
+      visitOrder: index + 1
+    }));
+    // The drawn route path traces ONLY the timed schedule; unscheduled
+    // candidate stops render as pins but don't bend the route line.
+    const scheduledCount = scheduled.length;
     return {
       ...detail,
       stops,
-      polyline: stops.map((stop) => [stop.lat, stop.lon] as [number, number])
+      polyline: stops.slice(0, scheduledCount).map((stop) => [stop.lat, stop.lon] as [number, number])
     };
   } catch {
     // Timed table missing / DB hiccup: fall back to the legacy ordering.
