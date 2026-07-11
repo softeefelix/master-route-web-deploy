@@ -80,9 +80,23 @@ export function RouteMap({
   onRouteSelect,
   onStopSelect
 }: RouteMapProps) {
+  // MR46: when a timed master schedule exists, the map mirrors the print
+  // sheet — scheduled stops get numbered pins in schedule order; unscheduled
+  // candidate stops render as small grey markers (review material, not the
+  // route). Legacy routes (no schedule) keep the old numbered rendering.
+  const hasTimedSchedule = (routeDetail?.stops ?? []).some((stop) => stop.plannedArrive);
+  const scheduledStops = hasTimedSchedule
+    ? (routeDetail?.stops ?? []).filter((stop) => stop.plannedArrive)
+    : (routeDetail?.stops ?? []);
+  const lastScheduledStopId = scheduledStops.at(-1)?.stopClusterId ?? null;
+  const firstScheduledStopId = scheduledStops[0]?.stopClusterId ?? null;
+
   const topScoringStopIds = new Set(
-    (routeDetail?.stops ?? [])
-      .filter((_, index, stops) => index !== 0 && index !== stops.length - 1)
+    scheduledStops
+      .filter(
+        (stop) =>
+          stop.stopClusterId !== firstScheduledStopId && stop.stopClusterId !== lastScheduledStopId
+      )
       .slice()
       .sort(
         (left, right) =>
@@ -180,12 +194,21 @@ export function RouteMap({
 
         {routeDetail?.stops.map((stop, index) => {
           const isSelected = selectedStopId === stop.stopClusterId;
-          const isBoundaryStop = index === 0 || index === routeDetail.stops.length - 1;
+          const isCandidateStop = hasTimedSchedule && !stop.plannedArrive;
+          const isBoundaryStop = hasTimedSchedule
+            ? stop.stopClusterId === firstScheduledStopId || stop.stopClusterId === lastScheduledStopId
+            : index === 0 || index === routeDetail.stops.length - 1;
           const popupContent = (
             <div className="space-y-1 text-sm text-ink">
               <div className="font-semibold">
                 {routeDetail.day} {"\u2014"} {routeDetail.routeClusterName}
               </div>
+              {isCandidateStop ? (
+                <div className="font-semibold text-slate-500">
+                  Candidate stop — scored top-{routeDetail.stops.length} but not in the timed schedule
+                </div>
+              ) : null}
+              {stop.plannedArrive ? <div>Planned arrive: {stop.plannedArrive}</div> : null}
               <div>Stop cluster ID: {stop.stopClusterId}</div>
               <div>Past visits: {stop.salesMatchesWithin50m ?? "N/A"}</div>
               <div>Past total sales: {formatCurrency(stop.pastSalesPerDaySameDow)}</div>
@@ -196,6 +219,30 @@ export function RouteMap({
               <div>Address: {stop.address}</div>
             </div>
           );
+
+          if (isCandidateStop) {
+            return (
+              <CircleMarker
+                key={stop.stopClusterId}
+                center={[stop.lat, stop.lon]}
+                radius={6}
+                pathOptions={{
+                  color: "#64748b",
+                  fillColor: "#94a3b8",
+                  fillOpacity: 0.75,
+                  opacity: 0.9,
+                  weight: 1.5,
+                  dashArray: "2 2"
+                }}
+                eventHandlers={{
+                  click: () => onStopSelect(stop.stopClusterId)
+                }}
+                pane="stops"
+              >
+                <Popup maxWidth={350}>{popupContent}</Popup>
+              </CircleMarker>
+            );
+          }
 
           if (isBoundaryStop) {
             return (

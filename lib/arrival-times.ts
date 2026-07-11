@@ -101,15 +101,15 @@ export function getArrivalTimes(routeClusterId: number, dow: string): ArrivalTim
   }
 }
 
-export function sortStopsByArrivalTime<TStop extends Pick<RouteStopDto, "stopClusterId">>(
-  stops: TStop[],
-  savedTimes: ArrivalTimesByStop
-) {
+export function sortStopsByArrivalTime<
+  TStop extends Pick<RouteStopDto, "stopClusterId"> & { plannedArrive?: string | null }
+>(stops: TStop[], savedTimes: ArrivalTimesByStop) {
   return stops
     .map((stop, index) => ({
       stop,
       index,
-      arrivalTime: getSavedArrivalTime(savedTimes, stop.stopClusterId)
+      // Ops override wins; otherwise the timed master schedule (MR46).
+      arrivalTime: getSavedArrivalTime(savedTimes, stop.stopClusterId) ?? stop.plannedArrive ?? null
     }))
     .sort((left, right) => {
       if (left.arrivalTime && right.arrivalTime) {

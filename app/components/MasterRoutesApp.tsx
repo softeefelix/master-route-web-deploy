@@ -470,9 +470,18 @@ export function MasterRoutesApp() {
       visitOrder: index + 1
     }));
 
+    // MR46: when a timed schedule exists, the drawn route traces only stops
+    // with a time (ops pin or planned arrive) — candidates don't bend the line.
+    const hasSchedule = orderedStops.some((stop) => stop.plannedArrive);
+    const pathStops = hasSchedule
+      ? orderedStops.filter(
+          (stop) => arrivalTimes[String(stop.stopClusterId)] || stop.plannedArrive
+        )
+      : orderedStops;
+
     return {
       ...routeDetail,
-      polyline: orderedStops.map((stop) => [stop.lat, stop.lon] as [number, number]),
+      polyline: pathStops.map((stop) => [stop.lat, stop.lon] as [number, number]),
       stops: orderedStops
     };
   }, [arrivalTimes, routeDetail]);
