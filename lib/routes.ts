@@ -621,11 +621,13 @@ async function getRecentlyRunRouteClusterIds(
   months: number
 ): Promise<Set<number> | null> {
   try {
+    // Use day-precision window (Prisma + make_interval param binding is flaky).
+    const days = Math.max(1, Math.round(months * 30.4375));
     const rows = await prisma.$queryRaw<Array<{ route_cluster_id: number }>>(Prisma.sql`
       SELECT DISTINCT route_cluster_id
       FROM sale_stops
       WHERE pipeline_run_id = ${activePipelineRunId}
-        AND created_at >= (now() - make_interval(months => ${months}))
+        AND created_at >= (now() - (${days}::text || ' days')::interval)
     `);
     return new Set(rows.map((r) => r.route_cluster_id));
   } catch {
