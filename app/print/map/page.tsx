@@ -148,6 +148,7 @@ export default function PrintMapPage() {
             visualMode="bw"
             selectedOnly
             hideModeToggle
+            fitMaxZoom={17}
             onRouteSelect={() => undefined}
             onStopSelect={() => undefined}
           />

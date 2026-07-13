@@ -34,6 +34,11 @@ type RouteMapProps = {
   selectedOnly?: boolean;
   /** Hide mode toggle chip (print layout). */
   hideModeToggle?: boolean;
+  /**
+   * Cap map.fitBounds zoom. Higher = closer street-name ink for captures.
+   * Driver/print page uses 17; main app defaults 16.
+   */
+  fitMaxZoom?: number;
   onRouteSelect: (routeClusterId: number, stopClusterId?: number | null) => void;
   onStopSelect: (stopClusterId: number) => void;
   onVisualModeChange?: (mode: MapVisualMode) => void;
@@ -77,6 +82,7 @@ export function RouteMap({
   visualMode: visualModeProp,
   selectedOnly = false,
   hideModeToggle = false,
+  fitMaxZoom = 16,
   onRouteSelect,
   onStopSelect,
   onVisualModeChange
@@ -211,7 +217,7 @@ export function RouteMap({
         ) : null}
         <Pane name="routes" style={{ zIndex: 350 }} />
         <Pane name="stops" style={{ zIndex: 450 }} />
-        <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} />
+        <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} fitMaxZoom={fitMaxZoom} />
 
         {summariesToDraw.map((summary) => {
           const isSelectedRoute =
@@ -464,10 +470,12 @@ function SelectedStopMarker({
 
 function FitToRoute({
   routeDetail,
-  selectedStopId
+  selectedStopId,
+  fitMaxZoom
 }: {
   routeDetail: RouteDetailDto | null;
   selectedStopId: number | null;
+  fitMaxZoom: number;
 }) {
   const map = useMap();
   const lastRouteKey = useRef<string>("");
@@ -480,17 +488,29 @@ function FitToRoute({
 
     const routeKey = `${routeDetail.day}-${routeDetail.routeClusterId}-${routeDetail.stops
       .map((stop) => stop.stopClusterId)
-      .join("|")}`;
+      .join("|")}-${fitMaxZoom}`;
     if (routeKey === lastRouteKey.current) {
       return;
     }
 
     lastRouteKey.current = routeKey;
-    map.fitBounds(routeDetail.bounds, {
-      padding: [40, 40],
-      maxZoom: 16
-    });
-  }, [map, routeDetail]);
+    // Street labels get useful around z15–17; prefer planned stops for tighter bounds.
+    const planned = routeDetail.stops.filter((s) => s.plannedArrive);
+    const pts = (planned.length >= 3 ? planned : routeDetail.stops).map(
+      (s) => [s.lat, s.lon] as [number, number]
+    );
+    if (pts.length >= 2) {
+      map.fitBounds(L.latLngBounds(pts), {
+        padding: [36, 36],
+        maxZoom: fitMaxZoom
+      });
+    } else {
+      map.fitBounds(routeDetail.bounds, {
+        padding: [40, 40],
+        maxZoom: fitMaxZoom
+      });
+    }
+  }, [map, routeDetail, fitMaxZoom]);
 
   useEffect(() => {
     if (!selectedStop) {
