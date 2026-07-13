@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -16,6 +16,11 @@ import {
 import L from "leaflet";
 import type { LeafletEventHandlerFnMap } from "leaflet";
 import { formatCurrency, formatScore } from "@/lib/utils";
+import {
+  DEFAULT_MAP_VISUAL_MODE,
+  MAP_VISUAL_MODES,
+  type MapVisualMode
+} from "@/lib/map-style";
 import type { RouteDetailDto, RouteSummaryDto } from "@/types/routes";
 
 type RouteMapProps = {
@@ -23,36 +28,26 @@ type RouteMapProps = {
   routeDetail: RouteDetailDto | null;
   selectedStopId: number | null;
   isLoading: boolean;
+  /** Force B&W / color. Default = B&W capture-friendly. */
+  visualMode?: MapVisualMode;
+  /** Hide unrelated routes (print/capture). Default true for main UI = false. */
+  selectedOnly?: boolean;
+  /** Hide mode toggle chip (print layout). */
+  hideModeToggle?: boolean;
   onRouteSelect: (routeClusterId: number, stopClusterId?: number | null) => void;
   onStopSelect: (stopClusterId: number) => void;
+  onVisualModeChange?: (mode: MapVisualMode) => void;
 };
 
-const startIcon = L.divIcon({
-  className: "route-pin-icon",
-  html: '<div class="route-pin route-pin--start"><div class="route-pin__glyph">&#9654;</div></div>',
-  iconSize: [34, 34],
-  iconAnchor: [10, 30],
-  popupAnchor: [8, -26]
-});
-
-const endIcon = L.divIcon({
-  className: "route-pin-icon",
-  html: '<div class="route-pin route-pin--end"><div class="route-pin__glyph">&#9873;</div></div>',
-  iconSize: [34, 34],
-  iconAnchor: [10, 30],
-  popupAnchor: [8, -26]
-});
-
-// High-contrast ops colors (Andrew screen-scrapes maps for drivers — pale
-// cyan on a light basemap washed out and hid street names).
-const SELECTED_ROUTE_COLOR = "#0B5CAB";
-const SELECTED_ROUTE_CASE = "#0A1628";
-const TOP_STOP_PIN_COLOR = "#D35400";
-/** Default basemap: Esri World Street — streets + labels stay readable at route zoom. */
-const STREET_TILE_URL =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
-const STREET_TILE_ATTR =
-  "Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), OpenStreetMap contributors, and the GIS User Community";
+function createGlyphPin(className: string, glyphHtml: string) {
+  return L.divIcon({
+    className: "route-pin-icon",
+    html: `<div class="route-pin ${className}"><div class="route-pin__glyph">${glyphHtml}</div></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [10, 30],
+    popupAnchor: [8, -26]
+  });
+}
 
 function createNumberedRouteIcon(color: string, visitOrder: number, size = 34) {
   const label = String(visitOrder);
@@ -69,14 +64,8 @@ function createNumberedRouteIcon(color: string, visitOrder: number, size = 34) {
 }
 
 function getVisitOrderFontSize(label: string) {
-  if (label.length >= 3) {
-    return 11;
-  }
-
-  if (label.length === 2) {
-    return 13;
-  }
-
+  if (label.length >= 3) return 11;
+  if (label.length === 2) return 13;
   return 15;
 }
 
@@ -85,13 +74,21 @@ export function RouteMap({
   routeDetail,
   selectedStopId,
   isLoading,
+  visualMode: visualModeProp,
+  selectedOnly = false,
+  hideModeToggle = false,
   onRouteSelect,
-  onStopSelect
+  onStopSelect,
+  onVisualModeChange
 }: RouteMapProps) {
-  // MR46: when a timed master schedule exists, the map mirrors the print
-  // sheet — scheduled stops get numbered pins in schedule order; unscheduled
-  // candidate stops render as small grey markers (review material, not the
-  // route). Legacy routes (no schedule) keep the old numbered rendering.
+  const [internalMode, setInternalMode] = useState<MapVisualMode>(DEFAULT_MAP_VISUAL_MODE);
+  const visualMode = visualModeProp ?? internalMode;
+  const style = MAP_VISUAL_MODES[visualMode];
+
+  const startIcon = useMemo(() => createGlyphPin("route-pin--start", "&#9654;"), []);
+  const endIcon = useMemo(() => createGlyphPin("route-pin--end", "&#9873;"), []);
+
+  // MR46: timed schedule drives numbered pins / polyline; candidates trail as grey.
   const hasTimedSchedule = (routeDetail?.stops ?? []).some((stop) => stop.plannedArrive);
   const scheduledStops = hasTimedSchedule
     ? (routeDetail?.stops ?? []).filter((stop) => stop.plannedArrive)
@@ -122,11 +119,8 @@ export function RouteMap({
       ]
     : [37.58138, -122.14066];
 
-  // Street-following path for the selected route (OSRM via /api/drive-path).
-  // Popup/unselected routes still use straight polylines for perf.
   const scheduledWaypoints = useMemo(
     () => scheduledStops.map((s) => [s.lat, s.lon] as [number, number]),
-    // Identity key: route + length + first/last so we don't re-fetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       routeDetail?.routeClusterId,
@@ -156,7 +150,7 @@ export function RouteMap({
           setRoadPolyline(data.polyline);
         }
       } catch {
-        // keep straight fallback
+        // straight fallback
       }
     })();
 
@@ -165,8 +159,27 @@ export function RouteMap({
     };
   }, [scheduledWaypoints]);
 
+  function setMode(mode: MapVisualMode) {
+    if (visualModeProp === undefined) setInternalMode(mode);
+    onVisualModeChange?.(mode);
+  }
+
+  const summariesToDraw = selectedOnly
+    ? routeSummaries.filter(
+        (s) =>
+          routeDetail != null &&
+          s.routeClusterId === routeDetail.routeClusterId &&
+          s.day === routeDetail.day
+      )
+    : routeSummaries;
+
+  const selectedStroke = style.selectedStroke;
+  const selectedCase = style.selectedCase;
+  const pinDefault = style.pinDefault;
+  const pinTop = style.pinTop;
+
   return (
-    <div className="relative h-full w-full driver-map-contrast">
+    <div className={`relative h-full w-full driver-map-contrast driver-map-${visualMode}`}>
       <MapContainer
         center={defaultCenter}
         zoom={12}
@@ -179,12 +192,18 @@ export function RouteMap({
         fadeAnimation={false}
         markerZoomAnimation={false}
       >
-        <TileLayer attribution={STREET_TILE_ATTR} url={STREET_TILE_URL} maxZoom={19} maxNativeZoom={19} />
+        <TileLayer
+          key={visualMode}
+          attribution={style.attribution}
+          url={style.tileUrl}
+          maxZoom={19}
+          maxNativeZoom={19}
+        />
         <Pane name="routes" style={{ zIndex: 350 }} />
         <Pane name="stops" style={{ zIndex: 450 }} />
         <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} />
 
-        {routeSummaries.map((summary) => {
+        {summariesToDraw.map((summary) => {
           const isSelectedRoute =
             routeDetail?.routeClusterId === summary.routeClusterId && routeDetail.day === summary.day;
 
@@ -197,16 +216,18 @@ export function RouteMap({
               ? roadPolyline
               : summary.polyline;
 
+          const unselectedColor = style.unselectedStroke || summary.color;
+
           return (
-            <>
-              {/* Dark casing under selected path so the line survives muted screenshots */}
+            <Fragment key={`${summary.day}-${summary.routeClusterId}`}>
+              {/* White/dark casing so the centerline reads after B&W photocopy */}
               {isSelectedRoute ? (
                 <Polyline
                   key={`${summary.day}-${summary.routeClusterId}-case`}
                   pathOptions={{
-                    color: SELECTED_ROUTE_CASE,
-                    weight: 10,
-                    opacity: 0.9,
+                    color: selectedCase,
+                    weight: visualMode === "bw" ? 12 : 10,
+                    opacity: 1,
                     lineJoin: "round",
                     lineCap: "round"
                   }}
@@ -218,9 +239,9 @@ export function RouteMap({
               <Polyline
                 key={`${summary.day}-${summary.routeClusterId}-line`}
                 pathOptions={{
-                  color: isSelectedRoute ? SELECTED_ROUTE_COLOR : summary.color,
-                  weight: isSelectedRoute ? 6 : 3.5,
-                  opacity: isSelectedRoute ? 1 : 0.55,
+                  color: isSelectedRoute ? selectedStroke : unselectedColor,
+                  weight: isSelectedRoute ? (visualMode === "bw" ? 7 : 6) : 3.5,
+                  opacity: isSelectedRoute ? 1 : visualMode === "bw" ? 0.45 : 0.55,
                   lineJoin: "round",
                   lineCap: "round"
                 }}
@@ -234,38 +255,41 @@ export function RouteMap({
                   {summary.day} {"\u2014"} {summary.routeClusterName}
                 </Tooltip>
               </Polyline>
-            </>
+            </Fragment>
           );
         })}
 
-        {routeSummaries.flatMap((summary) =>
-          summary.stops.map((stop) => {
-            const isSelectedRouteStop =
-              routeDetail?.routeClusterId === summary.routeClusterId && routeDetail.day === summary.day;
-            if (isSelectedRouteStop) {
-              return null;
-            }
+        {!selectedOnly
+          ? summariesToDraw.flatMap((summary) =>
+              summary.stops.map((stop) => {
+                const isSelectedRouteStop =
+                  routeDetail?.routeClusterId === summary.routeClusterId &&
+                  routeDetail.day === summary.day;
+                if (isSelectedRouteStop) {
+                  return null;
+                }
 
-            return (
-              <CircleMarker
-                key={`summary-${summary.routeClusterId}-${stop.stopClusterId}`}
-                center={[stop.lat, stop.lon]}
-                radius={5}
-                pathOptions={{
-                  color: summary.color,
-                  fillColor: summary.color,
-                  fillOpacity: 0.7,
-                  opacity: 0.9,
-                  weight: 1
-                }}
-                eventHandlers={{
-                  click: () => onRouteSelect(summary.routeClusterId, stop.stopClusterId)
-                }}
-                pane="stops"
-              />
-            );
-          })
-        )}
+                return (
+                  <CircleMarker
+                    key={`summary-${summary.routeClusterId}-${stop.stopClusterId}`}
+                    center={[stop.lat, stop.lon]}
+                    radius={5}
+                    pathOptions={{
+                      color: style.unselectedStroke || summary.color,
+                      fillColor: style.unselectedStroke || summary.color,
+                      fillOpacity: 0.7,
+                      opacity: 0.9,
+                      weight: 1
+                    }}
+                    eventHandlers={{
+                      click: () => onRouteSelect(summary.routeClusterId, stop.stopClusterId)
+                    }}
+                    pane="stops"
+                  />
+                );
+              })
+            )
+          : null}
 
         {routeDetail?.stops.map((stop, index) => {
           const isSelected = selectedStopId === stop.stopClusterId;
@@ -302,11 +326,11 @@ export function RouteMap({
                 center={[stop.lat, stop.lon]}
                 radius={6}
                 pathOptions={{
-                  color: "#64748b",
-                  fillColor: "#94a3b8",
-                  fillOpacity: 0.75,
-                  opacity: 0.9,
-                  weight: 1.5,
+                  color: visualMode === "bw" ? "#000" : "#64748b",
+                  fillColor: visualMode === "bw" ? "#fff" : "#94a3b8",
+                  fillOpacity: 0.9,
+                  opacity: 1,
+                  weight: 2,
                   dashArray: "2 2"
                 }}
                 eventHandlers={{
@@ -340,8 +364,8 @@ export function RouteMap({
               center={[stop.lat, stop.lon]}
               icon={
                 topScoringStopIds.has(stop.stopClusterId)
-                  ? createNumberedRouteIcon(TOP_STOP_PIN_COLOR, stop.visitOrder, 40)
-                  : createNumberedRouteIcon(SELECTED_ROUTE_COLOR, stop.visitOrder)
+                  ? createNumberedRouteIcon(pinTop, stop.visitOrder, 40)
+                  : createNumberedRouteIcon(pinDefault, stop.visitOrder)
               }
               isOpen={isSelected}
               onClick={() => onStopSelect(stop.stopClusterId)}
@@ -352,6 +376,28 @@ export function RouteMap({
           );
         })}
       </MapContainer>
+
+      {!hideModeToggle ? (
+        <div className="absolute right-3 top-3 z-[1000] flex overflow-hidden rounded-full border border-slate-300 bg-white/95 text-xs font-semibold shadow-md">
+          {(["bw", "street"] as MapVisualMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setMode(mode)}
+              className={`px-3 py-1.5 transition ${
+                visualMode === mode ? "bg-ink text-white" : "text-slate-700 hover:bg-slate-100"
+              }`}
+              title={
+                mode === "bw"
+                  ? "Best for screenshots & B&W print (default)"
+                  : "Full color street basemap"
+              }
+            >
+              {MAP_VISUAL_MODES[mode].label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {isLoading ? (
         <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/92 px-4 py-2 text-sm font-medium text-ink shadow-panel">
@@ -406,7 +452,6 @@ function SelectedStopMarker({
   );
 }
 
-
 function FitToRoute({
   routeDetail,
   selectedStopId
@@ -431,8 +476,6 @@ function FitToRoute({
     }
 
     lastRouteKey.current = routeKey;
-    // Prefer street-label zoom when a single route is selected (Andrew captures
-    // chunks for drivers — names must still read when zoomed out slightly).
     map.fitBounds(routeDetail.bounds, {
       padding: [40, 40],
       maxZoom: 16

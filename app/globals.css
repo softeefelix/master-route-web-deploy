@@ -60,6 +60,29 @@ body {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
+/* B&W capture mode — monochrome ink that survives photocopy/screenshot desaturation */
+.driver-map-bw .route-pin--start,
+.driver-map-bw .route-pin--end,
+.driver-map-bw .route-pin--mid {
+  background: #111 !important;
+}
+
+.driver-map-bw .route-pin::after {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.driver-map-bw .route-pin__glyph {
+  color: #fff !important;
+  text-shadow: none;
+}
+
+.driver-map-bw .route-pin {
+  box-shadow:
+    0 0 0 2.5px #fff,
+    0 0 0 4px #000,
+    0 6px 12px rgba(0, 0, 0, 0.35);
+}
+
 .route-pin-icon {
   background: transparent;
   border: 0;

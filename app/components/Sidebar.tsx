@@ -535,22 +535,32 @@ export function Sidebar({
                 </div>
               ) : null}
               {selectedDay && selectedRouteClusterId != null ? (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2">
                   <a
-                    href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}&autoprint=1`}
+                    href={`/print/map?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
+                    className="block rounded-2xl border border-ink bg-ink px-3 py-2.5 text-center text-xs font-semibold text-white transition hover:bg-slate-800"
                   >
-                    🖨 Print route sheet
+                    🗺 Map for drivers (B&W capture)
                   </a>
-                  <button
-                    type="button"
-                    onClick={() => downloadRouteCsv()}
-                    className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
-                  >
-                    ⬇ Download CSV
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}&autoprint=1`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
+                    >
+                      🖨 Print address list
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => downloadRouteCsv()}
+                      className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
+                    >
+                      ⬇ Download CSV
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
