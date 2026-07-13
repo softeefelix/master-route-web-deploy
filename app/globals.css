@@ -101,31 +101,46 @@ body {
 
 @media print {
   @page {
-    margin: 0.45in;
+    margin: 0.4in;
   }
 
   html,
   body {
-    height: auto;
-  }
-
-  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
     background: #fff !important;
-    color: #111827;
+    color: #111827 !important;
   }
 
-  .screen-route-app {
+  /* Leaflet/map + screens frequently paint white over print content in Chromium.
+     Hide everything that is not the address list sheet. */
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-route-sheet,
+  .print-route-sheet * {
+    visibility: visible !important;
+  }
+
+  .screen-route-app,
+  .leaflet-container,
+  .leaflet-pane,
+  .leaflet-control-container {
     display: none !important;
   }
 
-  a[href]::after {
-    content: "" !important;
-  }
-
   .print-route-sheet {
-    display: block;
-    width: 100%;
-    color: #111827;
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #111827 !important;
+    background: #fff !important;
     font-size: 10.5pt;
     line-height: 1.35;
     print-color-adjust: exact;
@@ -138,7 +153,8 @@ body {
     justify-content: space-between;
     gap: 0.35in;
     border-bottom: 1px solid #cbd5e1;
-    padding-bottom: 0.18in;
+    padding-bottom: 0.15in;
+    margin-bottom: 0.12in;
   }
 
   .print-route-sheet__eyebrow {
@@ -153,7 +169,7 @@ body {
   .print-route-sheet h1 {
     margin: 0;
     color: #0f172a;
-    font-size: 17pt;
+    font-size: 16pt;
     line-height: 1.15;
   }
 
@@ -189,17 +205,17 @@ body {
   .print-route-sheet__stops {
     column-count: 2;
     column-gap: 0.16in;
-    margin: 0.2in 0 0;
+    margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .print-route-sheet__stop {
     display: grid;
-    grid-template-columns: 0.28in minmax(0, 1fr);
+    grid-template-columns: 0.26in minmax(0, 1fr);
     gap: 0.08in;
     min-width: 0;
-    margin-bottom: 0.08in;
+    margin-bottom: 0.07in;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -208,38 +224,42 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 0.24in;
-    height: 0.24in;
+    width: 0.22in;
+    height: 0.22in;
     border: 1px solid #94a3b8;
     border-radius: 999px;
     color: #0f172a;
-    font-size: 8.5pt;
+    font-size: 8pt;
     font-weight: 800;
   }
 
   .print-route-sheet__stop-body {
     min-width: 0;
     border-bottom: 1px solid #e2e8f0;
-    padding-bottom: 0.07in;
+    padding-bottom: 0.05in;
   }
 
   .print-route-sheet__address {
     color: #0f172a;
-    font-size: 10.5pt;
+    font-size: 10pt;
     font-weight: 700;
     overflow-wrap: anywhere;
   }
 
   .print-route-sheet__arrival-time {
-    margin-top: 0.03in;
-    color: #0f172a;
-    font-size: 10pt;
-    font-weight: 700;
+    margin-top: 0.02in;
+    color: #334155;
+    font-size: 9pt;
+    font-weight: 600;
   }
 
   .print-route-sheet__empty {
     margin: 0.3in 0 0;
     color: #475569;
     font-size: 11pt;
+  }
+
+  a[href]::after {
+    content: "" !important;
   }
 }

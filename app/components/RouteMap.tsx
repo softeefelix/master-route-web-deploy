@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   CircleMarker,
@@ -114,6 +114,49 @@ export function RouteMap({
       ]
     : [37.58138, -122.14066];
 
+  // Street-following path for the selected route (OSRM via /api/drive-path).
+  // Popup/unselected routes still use straight polylines for perf.
+  const scheduledWaypoints = useMemo(
+    () => scheduledStops.map((s) => [s.lat, s.lon] as [number, number]),
+    // Identity key: route + length + first/last so we don't re-fetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      routeDetail?.routeClusterId,
+      routeDetail?.day,
+      scheduledStops.length,
+      scheduledStops[0]?.stopClusterId,
+      scheduledStops.at(-1)?.stopClusterId
+    ]
+  );
+  const [roadPolyline, setRoadPolyline] = useState<[number, number][] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRoadPolyline(null);
+    if (scheduledWaypoints.length < 2) return;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/drive-path", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ coordinates: scheduledWaypoints })
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { polyline?: [number, number][] };
+        if (!cancelled && data.polyline && data.polyline.length >= 2) {
+          setRoadPolyline(data.polyline);
+        }
+      } catch {
+        // keep straight fallback
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduledWaypoints]);
+
   return (
     <div className="relative h-full w-full">
       <MapContainer
@@ -142,15 +185,22 @@ export function RouteMap({
             return null;
           }
 
+          const positions =
+            isSelectedRoute && roadPolyline && roadPolyline.length >= 2
+              ? roadPolyline
+              : summary.polyline;
+
           return (
             <Polyline
               key={`${summary.day}-${summary.routeClusterId}`}
               pathOptions={{
                 color: isSelectedRoute ? SELECTED_ROUTE_COLOR : summary.color,
-                weight: isSelectedRoute ? 5 : 3,
-                opacity: isSelectedRoute ? 0.95 : 0.5
+                weight: isSelectedRoute ? 5.5 : 3,
+                opacity: isSelectedRoute ? 0.95 : 0.5,
+                lineJoin: "round",
+                lineCap: "round"
               }}
-              positions={summary.polyline}
+              positions={positions}
               pane="routes"
               eventHandlers={{
                 click: () => onRouteSelect(summary.routeClusterId)

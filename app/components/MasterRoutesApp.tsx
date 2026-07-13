@@ -670,7 +670,10 @@ function PrintRouteSheet({
                   <div className="print-route-sheet__stop-body">
                     <div className="print-route-sheet__address">{stop.address}</div>
                     <div className="print-route-sheet__arrival-time">
-                      Arrival time: {formatPrintArrivalTime(arrivalTimes[String(stop.stopClusterId)])}
+                      Arrival:{" "}
+                      {formatPrintArrivalTime(
+                        arrivalTimes[String(stop.stopClusterId)] ?? stop.plannedArrive ?? undefined
+                      )}
                     </div>
                   </div>
                 </li>
