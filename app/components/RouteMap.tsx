@@ -193,12 +193,22 @@ export function RouteMap({
         markerZoomAnimation={false}
       >
         <TileLayer
-          key={visualMode}
+          key={`${visualMode}-base`}
           attribution={style.attribution}
           url={style.tileUrl}
           maxZoom={19}
           maxNativeZoom={19}
         />
+        {style.labelTileUrl ? (
+          <TileLayer
+            key={`${visualMode}-labels`}
+            url={style.labelTileUrl}
+            maxZoom={19}
+            maxNativeZoom={19}
+            opacity={1}
+            zIndex={250}
+          />
+        ) : null}
         <Pane name="routes" style={{ zIndex: 350 }} />
         <Pane name="stops" style={{ zIndex: 450 }} />
         <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} />

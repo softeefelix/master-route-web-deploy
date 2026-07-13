@@ -4,32 +4,40 @@
  */
 export type MapVisualMode = "bw" | "street";
 
-export const MAP_VISUAL_MODES: Record<
-  MapVisualMode,
-  {
-    label: string;
-    tileUrl: string;
-    attribution: string;
-    selectedStroke: string;
-    selectedCase: string;
-    unselectedStroke: string;
-    pinDefault: string;
-    pinTop: string;
-  }
-> = {
-  /** Max monochrome legibility — open street basemap + pure black route centerline. */
+export type MapStyleConfig = {
+  label: string;
+  /** Primary/base tile layer (land, water, roads). */
+  tileUrl: string;
+  attribution: string;
+  /** Optional second layer for labels (street names); stacked above the base. */
+  labelTileUrl?: string;
+  selectedStroke: string;
+  selectedCase: string;
+  unselectedStroke: string;
+  pinDefault: string;
+  pinTop: string;
+};
+
+export const MAP_VISUAL_MODES: Record<MapVisualMode, MapStyleConfig> = {
+  /**
+   * True monochrome ops basemap (Esri light gray + reference labels).
+   * Survives desaturation / B&W print much better than full-color street maps.
+   * Route centerline is pure black on a white casing.
+   */
   bw: {
     label: "B&W capture",
-    tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    tileUrl:
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    labelTileUrl:
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Tiles &copy; Esri — Light Gray Canvas",
     selectedStroke: "#000000",
     selectedCase: "#FFFFFF",
-    unselectedStroke: "#555555",
+    unselectedStroke: "#666666",
     pinDefault: "#111111",
     pinTop: "#000000"
   },
-  /** Color street basemap (still higher-contrast than the old Carto light). */
+  /** Full color streets — secondary when color print is needed. */
   street: {
     label: "Color streets",
     tileUrl:
@@ -44,5 +52,5 @@ export const MAP_VISUAL_MODES: Record<
   }
 };
 
-/** Knowledge defaults to B&W — screenshots desaturate and color washind loses labels. */
+/** Knowledge defaults to B&W — screenshots desaturate and color washout loses labels. */
 export const DEFAULT_MAP_VISUAL_MODE: MapVisualMode = "bw";
