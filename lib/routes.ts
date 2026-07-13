@@ -591,10 +591,46 @@ async function getSeasonalRouteClustersForDay(
       return left.id - right.id;
     });
 
-  const persistentRouteClusterIds = new Set(await getPersistentRouteClusterIds());
-  const visibleClusters = selectVisibleRouteClusters(rankedClusters, routeClusterLimit, persistentRouteClusterIds);
+  // Felix 2026-07-13: drop anything not run in the last 4 months (ops-dead routes
+  // clutter the dropdown even if they score on multi-year month filters).
+  const recentlyRunIds = await getRecentlyRunRouteClusterIds(activePipelineRunId, 4);
+  const freshRankedClusters =
+    recentlyRunIds === null
+      ? rankedClusters // DB lookup failed — don't blank the day
+      : rankedClusters.filter((cluster) => recentlyRunIds.has(cluster.id));
+
+  const rawPersistentIds = await getPersistentRouteClusterIds();
+  const persistentRouteClusterIds = new Set(
+    recentlyRunIds === null
+      ? rawPersistentIds
+      : rawPersistentIds.filter((id) => recentlyRunIds.has(id))
+  );
+  const visibleClusters = selectVisibleRouteClusters(
+    freshRankedClusters,
+    routeClusterLimit,
+    persistentRouteClusterIds
+  );
   setInSeasonalClustersCache(cacheKey, visibleClusters);
   return visibleClusters;
+}
+
+/** Route cluster ids with ≥1 sale_stops row in the last `months` months (active run).
+ *  Returns null on query failure (caller should fail open). */
+async function getRecentlyRunRouteClusterIds(
+  activePipelineRunId: bigint,
+  months: number
+): Promise<Set<number> | null> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ route_cluster_id: number }>>(Prisma.sql`
+      SELECT DISTINCT route_cluster_id
+      FROM sale_stops
+      WHERE pipeline_run_id = ${activePipelineRunId}
+        AND created_at >= (now() - make_interval(months => ${months}))
+    `);
+    return new Set(rows.map((r) => r.route_cluster_id));
+  } catch {
+    return null;
+  }
 }
 
 function selectVisibleRouteClusters(
