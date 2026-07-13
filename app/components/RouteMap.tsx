@@ -43,8 +43,16 @@ const endIcon = L.divIcon({
   popupAnchor: [8, -26]
 });
 
-const SELECTED_ROUTE_COLOR = "#00A7E1";
-const TOP_STOP_PIN_COLOR = "#F17720";
+// High-contrast ops colors (Andrew screen-scrapes maps for drivers — pale
+// cyan on a light basemap washed out and hid street names).
+const SELECTED_ROUTE_COLOR = "#0B5CAB";
+const SELECTED_ROUTE_CASE = "#0A1628";
+const TOP_STOP_PIN_COLOR = "#D35400";
+/** Default basemap: Esri World Street — streets + labels stay readable at route zoom. */
+const STREET_TILE_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+const STREET_TILE_ATTR =
+  "Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), OpenStreetMap contributors, and the GIS User Community";
 
 function createNumberedRouteIcon(color: string, visitOrder: number, size = 34) {
   const label = String(visitOrder);
@@ -158,10 +166,12 @@ export function RouteMap({
   }, [scheduledWaypoints]);
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full driver-map-contrast">
       <MapContainer
         center={defaultCenter}
-        zoom={11}
+        zoom={12}
+        minZoom={10}
+        maxZoom={19}
         scrollWheelZoom
         className="h-full w-full"
         preferCanvas
@@ -169,10 +179,7 @@ export function RouteMap({
         fadeAnimation={false}
         markerZoomAnimation={false}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        />
+        <TileLayer attribution={STREET_TILE_ATTR} url={STREET_TILE_URL} maxZoom={19} maxNativeZoom={19} />
         <Pane name="routes" style={{ zIndex: 350 }} />
         <Pane name="stops" style={{ zIndex: 450 }} />
         <FitToRoute routeDetail={routeDetail} selectedStopId={selectedStopId} />
@@ -191,25 +198,43 @@ export function RouteMap({
               : summary.polyline;
 
           return (
-            <Polyline
-              key={`${summary.day}-${summary.routeClusterId}`}
-              pathOptions={{
-                color: isSelectedRoute ? SELECTED_ROUTE_COLOR : summary.color,
-                weight: isSelectedRoute ? 5.5 : 3,
-                opacity: isSelectedRoute ? 0.95 : 0.5,
-                lineJoin: "round",
-                lineCap: "round"
-              }}
-              positions={positions}
-              pane="routes"
-              eventHandlers={{
-                click: () => onRouteSelect(summary.routeClusterId)
-              }}
-            >
-              <Tooltip sticky className="route-tooltip">
-                {summary.day} {"\u2014"} {summary.routeClusterName}
-              </Tooltip>
-            </Polyline>
+            <>
+              {/* Dark casing under selected path so the line survives muted screenshots */}
+              {isSelectedRoute ? (
+                <Polyline
+                  key={`${summary.day}-${summary.routeClusterId}-case`}
+                  pathOptions={{
+                    color: SELECTED_ROUTE_CASE,
+                    weight: 10,
+                    opacity: 0.9,
+                    lineJoin: "round",
+                    lineCap: "round"
+                  }}
+                  positions={positions}
+                  pane="routes"
+                  interactive={false}
+                />
+              ) : null}
+              <Polyline
+                key={`${summary.day}-${summary.routeClusterId}-line`}
+                pathOptions={{
+                  color: isSelectedRoute ? SELECTED_ROUTE_COLOR : summary.color,
+                  weight: isSelectedRoute ? 6 : 3.5,
+                  opacity: isSelectedRoute ? 1 : 0.55,
+                  lineJoin: "round",
+                  lineCap: "round"
+                }}
+                positions={positions}
+                pane="routes"
+                eventHandlers={{
+                  click: () => onRouteSelect(summary.routeClusterId)
+                }}
+              >
+                <Tooltip sticky className="route-tooltip">
+                  {summary.day} {"\u2014"} {summary.routeClusterName}
+                </Tooltip>
+              </Polyline>
+            </>
           );
         })}
 
@@ -406,7 +431,12 @@ function FitToRoute({
     }
 
     lastRouteKey.current = routeKey;
-    map.fitBounds(routeDetail.bounds, { padding: [32, 32] });
+    // Prefer street-label zoom when a single route is selected (Andrew captures
+    // chunks for drivers — names must still read when zoomed out slightly).
+    map.fitBounds(routeDetail.bounds, {
+      padding: [40, 40],
+      maxZoom: 16
+    });
   }, [map, routeDetail]);
 
   useEffect(() => {

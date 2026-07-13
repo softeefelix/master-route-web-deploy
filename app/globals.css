@@ -43,10 +43,21 @@ body {
 .leaflet-tooltip.route-tooltip {
   border: 0;
   border-radius: 999px;
-  background: rgba(17, 32, 51, 0.9);
+  background: rgba(17, 32, 51, 0.92);
   color: #f8fbfc;
   box-shadow: 0 12px 24px rgba(17, 32, 51, 0.18);
   padding: 8px 12px;
+}
+
+/* Slightly darker pin edge so numbers hold up when screen-captured mid-route */
+.driver-map-contrast .route-pin {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.95),
+    0 8px 16px rgba(10, 22, 40, 0.4);
+}
+
+.driver-map-contrast .route-pin__glyph {
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .route-pin-icon {
