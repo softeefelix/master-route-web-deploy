@@ -638,7 +638,7 @@ function PrintRouteSheet({
   const routeName = routeDetail ? removeRouteId(routeDetail.routeClusterName) : "";
 
   return (
-    <section className="print-route-sheet" aria-hidden="true">
+    <section className="print-route-sheet" data-print-sheet="true">
       {routeDetail ? (
         <>
           <header className="print-route-sheet__header">

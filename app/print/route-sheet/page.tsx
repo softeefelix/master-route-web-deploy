@@ -28,8 +28,10 @@ type TimedRoute = {
 type RouteName = { routeClusterId: number; name: string };
 
 function shortAddress(address: string): string {
-  // Keep the venue/street + city (first 3 comma parts), drop county/state/zip noise.
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  const parts = address
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   return parts.slice(0, 3).join(", ") || address;
 }
 
@@ -45,6 +47,10 @@ async function fetchFromApi<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * Dedicated print route. Uses class `print-sheet` (also un-hidden by globals @media print).
+ * Self-contained black-on-white print styles; no map chrome on this page.
+ */
 export default async function PrintRoutePage({
   searchParams
 }: {
@@ -55,7 +61,11 @@ export default async function PrintRoutePage({
   const routeClusterId = params.routeClusterId ?? "";
 
   if (!day || !routeClusterId) {
-    return <main style={{ padding: 32, fontFamily: "system-ui" }}>Missing day or routeClusterId.</main>;
+    return (
+      <main className="print-sheet" style={{ padding: 32, fontFamily: "system-ui" }}>
+        Missing day or routeClusterId.
+      </main>
+    );
   }
 
   const [timed, names, overrides] = await Promise.all([
@@ -63,7 +73,9 @@ export default async function PrintRoutePage({
       `/api/timed-route?day=${encodeURIComponent(day)}&routeClusterId=${encodeURIComponent(routeClusterId)}`
     ),
     fetchFromApi<RouteName[]>(`/api/route-names`),
-    fetchFromApi<{ overrides: Array<{ stopClusterId: number; hidden: boolean; arrivalTime?: string | null }> }>(
+    fetchFromApi<{
+      overrides: Array<{ stopClusterId: number; hidden: boolean; arrivalTime?: string | null }>;
+    }>(
       `/api/stop-overrides?day=${encodeURIComponent(day)}&routeClusterId=${encodeURIComponent(routeClusterId)}`
     )
   ]);
@@ -88,16 +100,13 @@ export default async function PrintRoutePage({
         : "Schedule";
 
   return (
-    <main className="print-sheet">
+    <main className="print-sheet" style={{ fontFamily: "system-ui, -apple-system, sans-serif", color: "#111", background: "#fff", padding: 24, maxWidth: 800, margin: "0 auto" }}>
+      {/* Scoped screen-only controls + print safety; DO NOT hide .print-sheet itself. */}
       <style>{`
-        html, body { background: #fff !important; color: #111 !important; }
-        .print-sheet {
-          font-family: system-ui, -apple-system, sans-serif;
-          color: #111;
-          background: #fff;
-          padding: 24px;
-          max-width: 800px;
-          margin: 0 auto;
+        html, body { background: #fff !important; color: #111 !important; height: auto !important; }
+        .print-btn {
+          margin-bottom: 16px; padding: 8px 18px; font-size: 13px; font-weight: 600;
+          border-radius: 8px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; color: #111;
         }
         .print-sheet h1 { font-size: 20px; margin: 0 0 2px; color: #111; }
         .print-sheet .sub { font-size: 12px; color: #333; margin-bottom: 14px; }
@@ -106,39 +115,32 @@ export default async function PrintRoutePage({
           text-align: left; border-bottom: 2px solid #111; padding: 4px 6px;
           font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #111;
         }
-        .print-sheet td { border-bottom: 1px solid #999; padding: 5px 6px; vertical-align: top; color: #111; }
+        .print-sheet td { border-bottom: 1px solid #666; padding: 5px 6px; vertical-align: top; color: #111; }
         .print-sheet td.time { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .print-sheet td.window { color: #333; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .print-sheet td.num { text-align: right; font-variant-numeric: tabular-nums; }
         .print-sheet .checkbox {
           width: 14px; height: 14px; border: 1.5px solid #111; border-radius: 3px; display: inline-block;
         }
-        .print-sheet .footer { margin-top: 14px; font-size: 10px; color: #444; }
-        .print-btn {
-          margin-bottom: 16px; padding: 8px 18px; font-size: 13px; font-weight: 600;
-          border-radius: 8px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; color: #111;
-        }
+        .print-sheet .footer { margin-top: 14px; font-size: 10px; color: #333; }
         @media print {
-          /* Isolated print page (no map) — still force plain black text on white */
-          html, body {
-            background: #fff !important;
-            color: #111 !important;
-            height: auto !important;
-            overflow: visible !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          body * { visibility: visible !important; }
           .print-btn { display: none !important; }
+          html, body {
+            background: #fff !important; color: #111 !important;
+            height: auto !important; overflow: visible !important;
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
+          }
           .print-sheet {
+            display: block !important;
+            position: static !important;
             padding: 0 !important;
             max-width: none !important;
             color: #111 !important;
             background: #fff !important;
-            position: static !important;
+            visibility: visible !important;
+            opacity: 1 !important;
           }
-          .print-sheet, .print-sheet * { color: #111 !important; }
-          .print-sheet td, .print-sheet th { border-color: #444 !important; }
+          .print-sheet, .print-sheet * { color: #111 !important; visibility: visible !important; }
           @page { margin: 12mm; }
         }
       `}</style>
@@ -147,7 +149,16 @@ export default async function PrintRoutePage({
       </button>
       <script
         dangerouslySetInnerHTML={{
-          __html: `document.getElementById('print-trigger')?.addEventListener('click',function(){window.print()});`
+          __html: `
+            (function(){
+              var b = document.getElementById('print-trigger');
+              if (b) b.addEventListener('click', function(){ window.print(); });
+              // If opened with ?autoprint=1, print once content is ready.
+              if (/[?&]autoprint=1\\b/.test(location.search)) {
+                setTimeout(function(){ window.print(); }, 400);
+              }
+            })();
+          `
         }}
       />
       <h1>
@@ -189,9 +200,7 @@ export default async function PrintRoutePage({
                   <td className="window">
                     {stop.windowStart && stop.windowEnd ? `${stop.windowStart}–${stop.windowEnd}` : ""}
                   </td>
-                  <td className="num">
-                    {stop.expPerVisit ? `$${Math.round(stop.expPerVisit)}` : ""}
-                  </td>
+                  <td className="num">{stop.expPerVisit ? `$${Math.round(stop.expPerVisit)}` : ""}</td>
                 </tr>
               );
             })}
@@ -199,7 +208,7 @@ export default async function PrintRoutePage({
         </table>
       )}
       <div className="footer">
-        Mister Softee NorCal · Master Routes · stop order = lane the drivers should run.
+        Mister Softee NorCal · Master Routes · stop order = the lane drivers should run.
       </div>
     </main>
   );

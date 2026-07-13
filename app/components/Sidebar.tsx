@@ -537,7 +537,7 @@ export function Sidebar({
               {selectedDay && selectedRouteClusterId != null ? (
                 <div className="grid grid-cols-2 gap-2">
                   <a
-                    href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}`}
+                    href={`/print/route-sheet?day=${encodeURIComponent(selectedDay)}&routeClusterId=${selectedRouteClusterId}&autoprint=1`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block rounded-2xl border border-line bg-white px-3 py-2.5 text-center text-xs font-semibold text-ink transition hover:bg-slate-50"
