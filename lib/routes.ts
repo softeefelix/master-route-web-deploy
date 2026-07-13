@@ -182,9 +182,96 @@ export async function getRouteDetail(
 }
 
 /**
- * MR44 (Felix 2026-07-09, tightened 2026-07-10): the main route view must be
- * print-sheet parity — the SAME stop set, in the SAME order, as the timed
- * master schedule (route_timed_stops). The earlier overlay only re-ordered
+ * Pick school / no-school Geotab master for today (NorCal calendar matches
+ * build_timed_master_routes: summer break Jun 8 – Aug 14 = no-school).
+ */
+function preferredSeasonVariant(today = new Date()): "school" | "no-school" {
+  const month = today.getMonth() + 1;
+  const dayNum = today.getDate();
+  const md = month * 100 + dayNum;
+  // Jun 8 = 608 … Aug 14 = 814
+  if (md >= 608 && md <= 814) return "no-school";
+  return "school";
+}
+
+type ScheduleRow = {
+  stop_cluster_id: number | null;
+  stop_order: number;
+  arrive: string | null;
+  exp_per_visit: Prisma.Decimal | null;
+  visits: number | null;
+  address: string | null;
+  lat?: number | null;
+  lon?: number | null;
+};
+
+/**
+ * LIVE Geotab masters (Felix 2026-07-13) beat statistical timed schedules.
+ * Every exact-copy master we create is written to geotab_route_master_stops
+ * and is the authoritative sheet for that route+DOW (+ season pair).
+ */
+async function loadGeotabMasterRows(
+  routeClusterId: number,
+  day: string
+): Promise<{ rows: ScheduleRow[]; meta: { season: string; name: string; n: number } | null }> {
+  try {
+    const masters = await prisma.$queryRaw<
+      Array<{ season_variant: string; geotab_route_name: string; n_stops: number }>
+    >(Prisma.sql`
+      SELECT season_variant, geotab_route_name, n_stops
+      FROM geotab_route_masters
+      WHERE route_cluster_id = ${routeClusterId}
+        AND dow = ${day}
+        AND active = TRUE
+        AND live = TRUE
+    `);
+    if (masters.length === 0) return { rows: [], meta: null };
+    const want = preferredSeasonVariant();
+    const pick =
+      masters.find((m) => (m.season_variant || "") === want) ??
+      masters.find((m) => !m.season_variant) ??
+      masters[0];
+    const season = pick.season_variant || "";
+    const rows = await prisma.$queryRaw<
+      Array<{
+        stop_cluster_id: number | null;
+        stop_order: number;
+        arrive: string | null;
+        address: string | null;
+        lat: number;
+        lon: number;
+      }>
+    >(Prisma.sql`
+      SELECT stop_cluster_id, stop_order, arrive, address, lat, lon
+      FROM geotab_route_master_stops
+      WHERE route_cluster_id = ${routeClusterId}
+        AND dow = ${day}
+        AND season_variant = ${season}
+      ORDER BY stop_order
+    `);
+    return {
+      rows: rows.map((r) => ({
+        stop_cluster_id: r.stop_cluster_id,
+        stop_order: r.stop_order,
+        arrive: r.arrive,
+        exp_per_visit: null,
+        visits: null,
+        address: r.address,
+        lat: r.lat,
+        lon: r.lon
+      })),
+      meta: { season: season || "unspecified", name: pick.geotab_route_name, n: rows.length }
+    };
+  } catch {
+    return { rows: [], meta: null };
+  }
+}
+
+/**
+ * MR44 (Felix 2026-07-09, tightened 2026-07-10 + Geotab LIVE 2026-07-13): the main
+ * route view must be print-sheet parity — the SAME stop set, in the SAME order,
+ * as the live master schedule. Prefer geotab_route_master_stops when present;
+ * otherwise route_timed_stops. The earlier overlay only re-ordered
  * the top-N-by-score stops, so most scheduled stops were missing from the map
  * and unscheduled high scorers led the route. Now:
  *   1. Every stop in the timed schedule is shown, in slot order, with its
@@ -202,31 +289,51 @@ async function applyTimedSchedule(
   seasonalStopPool: SeasonalStop[]
 ): Promise<RouteDetailDto> {
   try {
-    const timedRows = await prisma.$queryRaw<
-      Array<{
-        stop_cluster_id: number;
-        stop_order: number;
-        arrive: string;
-        exp_per_visit: Prisma.Decimal | null;
-        visits: number | null;
-        address: string | null;
-      }>
-    >(Prisma.sql`
-      SELECT stop_cluster_id, stop_order, arrive, exp_per_visit, visits, address
-      FROM route_timed_stops
-      WHERE route_cluster_id = ${routeClusterId} AND dow = ${day}
-      ORDER BY stop_order
-    `);
+    const geotab = await loadGeotabMasterRows(routeClusterId, day);
+    let timedRows: ScheduleRow[] = geotab.rows;
+    let scheduleSource: RouteDetailDto["scheduleSource"] = geotab.rows.length
+      ? "geotab"
+      : undefined;
+    let scheduleLabel: string | null = geotab.meta
+      ? `Geotab ${geotab.meta.season} · ${geotab.meta.n} stops`
+      : null;
+
+    if (timedRows.length === 0) {
+      timedRows = await prisma.$queryRaw<
+        Array<{
+          stop_cluster_id: number;
+          stop_order: number;
+          arrive: string;
+          exp_per_visit: Prisma.Decimal | null;
+          visits: number | null;
+          address: string | null;
+        }>
+      >(Prisma.sql`
+        SELECT stop_cluster_id, stop_order, arrive, exp_per_visit, visits, address
+        FROM route_timed_stops
+        WHERE route_cluster_id = ${routeClusterId} AND dow = ${day}
+        ORDER BY stop_order
+      `);
+      if (timedRows.length > 0) {
+        scheduleSource = "timed";
+        scheduleLabel = `Timed builder · ${timedRows.length} stops`;
+      }
+    }
     if (timedRows.length === 0) {
       return detail;
     }
 
     // The timed schedule stores canonical stop ids; the view uses raw ids.
     // Map raw -> canonical through the alias table.
-    const timedIds = timedRows.map((row) => row.stop_cluster_id);
-    const aliasRows = await prisma.$queryRaw<
-      Array<{ alias_stop_cluster_id: number; canonical_stop_cluster_id: number }>
-    >(Prisma.sql`
+    const timedIds = timedRows
+      .map((row) => row.stop_cluster_id)
+      .filter((id): id is number => id != null);
+    const aliasRows =
+      timedIds.length === 0
+        ? []
+        : await prisma.$queryRaw<
+            Array<{ alias_stop_cluster_id: number; canonical_stop_cluster_id: number }>
+          >(Prisma.sql`
       SELECT alias_stop_cluster_id, canonical_stop_cluster_id
       FROM stop_cluster_aliases
       WHERE canonical_stop_cluster_id IN (${Prisma.join(timedIds)})
@@ -259,6 +366,7 @@ async function applyTimedSchedule(
     // coordinates from stop_clusters directly.
     const missingIds = timedRows
       .map((row) => row.stop_cluster_id)
+      .filter((id): id is number => id != null)
       .filter((id) => !detailByCanonical.has(id) && !poolByCanonical.has(id));
     const coordsById = new Map<number, { address: string | null; lat: number; lon: number }>();
     if (missingIds.length > 0) {
@@ -280,45 +388,56 @@ async function applyTimedSchedule(
 
     const scheduled: RouteDetailDto["stops"] = [];
     const scheduledCanonicals = new Set<number>();
+    // Synthetic negative ids for Geotab pins with no stop_cluster match.
+    let synthId = -1;
     for (const row of timedRows) {
       const canonical = row.stop_cluster_id;
-      const fromDetail = detailByCanonical.get(canonical);
-      if (fromDetail) {
-        scheduled.push({ ...fromDetail, plannedArrive: row.arrive });
-        scheduledCanonicals.add(canonical);
-        continue;
+      if (canonical != null) {
+        const fromDetail = detailByCanonical.get(canonical);
+        if (fromDetail) {
+          scheduled.push({ ...fromDetail, plannedArrive: row.arrive ?? null });
+          scheduledCanonicals.add(canonical);
+          continue;
+        }
+
+        const fromPool = poolByCanonical.get(canonical);
+        if (fromPool) {
+          scheduled.push({
+            stopClusterId: fromPool.stopClusterId,
+            visitOrder: 0,
+            address: fromPool.address,
+            lat: fromPool.lat,
+            lon: fromPool.lon,
+            stopType: null,
+            label: null,
+            pastSalesPerDaySameDow: fromPool.totalSales,
+            pastArrivalTime: fromPool.pastArrivalTime,
+            plannedArrive: row.arrive ?? null,
+            averageSale: fromPool.visits > 0 ? fromPool.totalSales / fromPool.visits : null,
+            expectedPerVisit: fromPool.expectedPerVisit,
+            otherDowAvgSalesPerDay: fromPool.visitsNorm,
+            predictedSalesPerDay: fromPool.score,
+            salesMatchesWithin50m: fromPool.visits
+          });
+          scheduledCanonicals.add(canonical);
+          continue;
+        }
       }
 
-      const fromPool = poolByCanonical.get(canonical);
-      if (fromPool) {
-        scheduled.push({
-          stopClusterId: fromPool.stopClusterId,
-          visitOrder: 0,
-          address: fromPool.address,
-          lat: fromPool.lat,
-          lon: fromPool.lon,
-          stopType: null,
-          label: null,
-          pastSalesPerDaySameDow: fromPool.totalSales,
-          pastArrivalTime: fromPool.pastArrivalTime,
-          plannedArrive: row.arrive,
-          averageSale: fromPool.visits > 0 ? fromPool.totalSales / fromPool.visits : null,
-          expectedPerVisit: fromPool.expectedPerVisit,
-          otherDowAvgSalesPerDay: fromPool.visitsNorm,
-          predictedSalesPerDay: fromPool.score,
-          salesMatchesWithin50m: fromPool.visits
-        });
-        scheduledCanonicals.add(canonical);
-        continue;
-      }
-
-      const coords = coordsById.get(canonical);
+      // Geotab rows always carry lat/lon; non-geotab fall back to stop_clusters.
+      const coords =
+        row.lat != null && row.lon != null
+          ? { address: row.address ?? null, lat: row.lat, lon: row.lon }
+          : canonical != null
+            ? coordsById.get(canonical)
+            : undefined;
       if (!coords) {
-        // No coordinates anywhere — can't place it on the map; skip.
         continue;
       }
+      const stopId = canonical ?? synthId--;
+      if (canonical != null) scheduledCanonicals.add(canonical);
       scheduled.push({
-        stopClusterId: canonical,
+        stopClusterId: stopId,
         visitOrder: 0,
         address: row.address ?? coords.address ?? "Unknown address",
         lat: coords.lat,
@@ -327,14 +446,13 @@ async function applyTimedSchedule(
         label: null,
         pastSalesPerDaySameDow: null,
         pastArrivalTime: null,
-        plannedArrive: row.arrive,
+        plannedArrive: row.arrive ?? null,
         averageSale: null,
         expectedPerVisit: row.exp_per_visit == null ? null : Number(row.exp_per_visit),
         otherDowAvgSalesPerDay: null,
         predictedSalesPerDay: null,
         salesMatchesWithin50m: row.visits
       });
-      scheduledCanonicals.add(canonical);
     }
 
     // Unscheduled top scorers trail after the schedule (review candidates).
@@ -352,7 +470,9 @@ async function applyTimedSchedule(
     return {
       ...detail,
       stops,
-      polyline: stops.slice(0, scheduledCount).map((stop) => [stop.lat, stop.lon] as [number, number])
+      polyline: stops.slice(0, scheduledCount).map((stop) => [stop.lat, stop.lon] as [number, number]),
+      scheduleSource,
+      scheduleLabel
     };
   } catch {
     // Timed table missing / DB hiccup: fall back to the legacy ordering.

@@ -484,6 +484,21 @@ export function Sidebar({
                   <span className="font-semibold text-ink">Total past sales:</span> {formatCurrency(routeDetail.totalSalesAmount)}
                 </div>
               </div>
+              {routeDetail.scheduleSource === "geotab" ? (
+                <div className="rounded-2xl border border-emerald-300/70 bg-emerald-50 px-3 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-800">
+                    Geotab Master LIVE
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed text-emerald-900">
+                    {routeDetail.scheduleLabel ?? "Exact-copy sheet from trip history"}
+                    . Map, print sheet, and adherence use this order.
+                  </div>
+                </div>
+              ) : routeDetail.scheduleSource === "timed" ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Schedule: {routeDetail.scheduleLabel ?? "timed builder"} (no Geotab master pinned yet)
+                </div>
+              ) : null}
               {reviewComments && reviewComments.comments.length > 0 ? (
                 <div className="rounded-2xl border border-amber-300/60 bg-amber-50 px-3 py-3">
                   <div className="flex items-baseline justify-between">

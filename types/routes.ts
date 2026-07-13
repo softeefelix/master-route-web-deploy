@@ -73,6 +73,9 @@ export type RouteDetailDto = {
   totalSalesAmount: number;
   /** Realistic expected $ for one day on this route: sum of shrunk $/visit over the top stops by visit frequency. */
   expectedDailyRevenue: number;
+  /** LIVE schedule provenance: geotab masters beat timed builder. */
+  scheduleSource?: "geotab" | "timed";
+  scheduleLabel?: string | null;
 };
 
 export type RouteNameDto = {
