@@ -281,7 +281,47 @@ async function loadGeotabMasterRows(
  *   2. Unscheduled top scorers trail AFTER the schedule (candidate/review
  *      stops, plannedArrive = null).
  * Falls back to the legacy score-ordered view when no timed schedule exists.
+ *
+ * MR46: also loads the stored actual GPS trace (breadcrumb path) for the
+ * master, when available.  The trace becomes the primary drawn polyline;
+ * OSRM /api/drive-path is fallback only.
  */
+async function loadGeotabMasterPath(
+  routeClusterId: number,
+  day: string
+): Promise<{ trace: Array<[number, number]> | null; stats: Record<string, unknown> | null; sourceTruck: number | null; sourceDate: string | null } | null> {
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        trace: Array<[number, number]> | null;
+        trace_stats: Record<string, unknown> | null;
+        source_truck: number | null;
+        source_date: Date | null;
+      }>
+    >(Prisma.sql`
+      SELECT trace, trace_stats, source_truck, source_date
+      FROM geotab_route_master_path
+      WHERE route_cluster_id = ${routeClusterId}
+        AND dow = ${day}
+        AND (season_variant = ${preferredSeasonVariant()} OR season_variant = '')
+      ORDER BY
+        CASE WHEN trace IS NOT NULL AND jsonb_array_length(trace::jsonb) > 0 THEN 0 ELSE 1 END,
+        generated_at DESC
+      LIMIT 1
+    `);
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      trace: r.trace ?? null,
+      stats: r.trace_stats ?? null,
+      sourceTruck: r.source_truck,
+      sourceDate: r.source_date?.toISOString().slice(0, 10) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function applyTimedSchedule(
   detail: RouteDetailDto,
   routeClusterId: number,
@@ -467,12 +507,23 @@ async function applyTimedSchedule(
     // The drawn route path traces ONLY the timed schedule; unscheduled
     // candidate stops render as pins but don't bend the route line.
     const scheduledCount = scheduled.length;
+
+    // MR46: load the stored actual GPS trace (breadcrumb path) for this master.
+    // When present it becomes the primary drawn polyline; OSRM is fallback.
+    const masterPath = await loadGeotabMasterPath(routeClusterId, day);
+    const tracePolyline = masterPath?.trace ?? null;
+    const traceSource: RouteDetailDto["traceSource"] = tracePolyline && tracePolyline.length >= 2
+      ? "trace"
+      : undefined;
+
     return {
       ...detail,
       stops,
       polyline: stops.slice(0, scheduledCount).map((stop) => [stop.lat, stop.lon] as [number, number]),
       scheduleSource,
-      scheduleLabel
+      scheduleLabel,
+      tracePolyline,
+      traceSource,
     };
   } catch {
     // Timed table missing / DB hiccup: fall back to the legacy ordering.

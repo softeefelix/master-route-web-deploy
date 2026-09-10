@@ -81,6 +81,7 @@ async function osrmLeg(points: LatLon[]): Promise<LatLon[] | null> {
 export async function buildDrivingPolyline(stops: LatLon[]): Promise<{
   polyline: LatLon[];
   source: "osrm" | "straight";
+  traceSource?: "osrm" | "straight";
 }> {
   const points = dedupeWaypoints(stops);
   if (points.length < 2) {
@@ -112,8 +113,10 @@ export async function buildDrivingPolyline(stops: LatLon[]): Promise<{
   }
 
   const usedOsrm = stitched.length > points.length * 1.2;
+  const src = usedOsrm ? ("osrm" as const) : ("straight" as const);
   return {
     polyline: stitched.length >= 2 ? stitched : points,
-    source: usedOsrm ? "osrm" : "straight"
+    source: src,
+    traceSource: src,
   };
 }

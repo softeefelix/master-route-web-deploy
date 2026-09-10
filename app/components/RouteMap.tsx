@@ -137,10 +137,28 @@ export function RouteMap({
     ]
   );
   const [roadPolyline, setRoadPolyline] = useState<[number, number][] | null>(null);
+  const [tracePolyline, setTracePolyline] = useState<[number, number][] | null>(null);
+  const [traceSource, setTraceSource] = useState<"trace" | "osrm" | "straight" | null>(null);
 
+  // MR46: prefer the stored actual GPS trace (breadcrumb path) over OSRM.
+  // The trace is the real path the truck drove — far more vertices than stops,
+  // visibly snakes block-by-block.  OSRM drive-path is fallback only.
   useEffect(() => {
     let cancelled = false;
+
+    // Reset when route changes
     setRoadPolyline(null);
+    setTracePolyline(null);
+    setTraceSource(null);
+
+    // 1) Check for a stored trace first
+    if (routeDetail?.tracePolyline && routeDetail.tracePolyline.length >= 2) {
+      setTracePolyline(routeDetail.tracePolyline);
+      setTraceSource("trace");
+      return; // trace beats OSRM — no need to call drive-path
+    }
+
+    // 2) Fall back to OSRM drive-path
     if (scheduledWaypoints.length < 2) return;
 
     void (async () => {
@@ -151,19 +169,20 @@ export function RouteMap({
           body: JSON.stringify({ coordinates: scheduledWaypoints })
         });
         if (!res.ok) return;
-        const data = (await res.json()) as { polyline?: [number, number][] };
+        const data = (await res.json()) as { polyline?: [number, number][]; source?: string };
         if (!cancelled && data.polyline && data.polyline.length >= 2) {
           setRoadPolyline(data.polyline);
+          setTraceSource(data.source === "osrm" ? "osrm" : "straight");
         }
       } catch {
-        // straight fallback
+        // straight fallback — leave roadPolyline null, map draws stop-chord
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [scheduledWaypoints]);
+  }, [routeDetail?.tracePolyline, scheduledWaypoints]);
 
   function setMode(mode: MapVisualMode) {
     if (visualModeProp === undefined) setInternalMode(mode);
@@ -228,9 +247,11 @@ export function RouteMap({
           }
 
           const positions =
-            isSelectedRoute && roadPolyline && roadPolyline.length >= 2
-              ? roadPolyline
-              : summary.polyline;
+            isSelectedRoute && tracePolyline && tracePolyline.length >= 2
+              ? tracePolyline
+              : isSelectedRoute && roadPolyline && roadPolyline.length >= 2
+                ? roadPolyline
+                : summary.polyline;
 
           const unselectedColor = style.unselectedStroke || summary.color;
 

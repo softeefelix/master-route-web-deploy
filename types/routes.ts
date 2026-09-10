@@ -51,6 +51,7 @@ export type RouteSummaryDto = {
   color: string;
   bounds: [[number, number], [number, number]];
   polyline: Array<[number, number]>;
+  trace?: Array<[number, number]> | null;  // MR46: actual driven GPS trace (breadcrumb), when available
   centroid: [number, number];
   stopCount: number;
   predictedSalesTotal: number;
@@ -68,6 +69,7 @@ export type RouteDetailDto = {
   color: string;
   bounds: [[number, number], [number, number]];
   polyline: Array<[number, number]>;
+  tracePolyline?: Array<[number, number]> | null;  // MR46: actual driven GPS trace (breadcrumb), when available
   stops: RouteStopDto[];
   predictedSalesTotal: number;
   totalSalesAmount: number;
@@ -76,6 +78,8 @@ export type RouteDetailDto = {
   /** LIVE schedule provenance: geotab masters beat timed builder. */
   scheduleSource?: "geotab" | "timed";
   scheduleLabel?: string | null;
+  /** MR46: provenance of the drawn route polyline */
+  traceSource?: "trace" | "osrm" | "straight" | undefined;
 };
 
 export type RouteNameDto = {
