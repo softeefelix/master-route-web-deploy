@@ -303,8 +303,11 @@ async function loadGeotabMasterPath(
       FROM geotab_route_master_path
       WHERE route_cluster_id = ${routeClusterId}
         AND dow = ${day}
-        AND (season_variant = ${preferredSeasonVariant()} OR season_variant = '')
       ORDER BY
+        CASE WHEN season_variant = ${preferredSeasonVariant()} THEN 0
+             WHEN season_variant = '' THEN 1
+             ELSE 2
+        END,
         CASE WHEN trace IS NOT NULL AND jsonb_array_length(trace::jsonb) > 0 THEN 0 ELSE 1 END,
         generated_at DESC
       LIMIT 1
